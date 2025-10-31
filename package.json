@@ -1,9 +1,8 @@
 {
   "name": "Imba-WebExt",
   "scripts": {
-    "dev": "imba -w index.html",
-    "build": "imba build index.html",
-    "preview": "npx vite preview"
+    "dev:imba": "imba build --esm --force -w index.html -d -o dist -M --base .",
+    "build:imba": "imba build --esm index.html -o dist/ -M --base ."
   },
   "devDependencies": {
     "imba": "^2.0.0-alpha.247"
