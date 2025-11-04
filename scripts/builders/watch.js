@@ -23,29 +23,42 @@ async function startWatchMode(files, config) {
     fs.mkdirSync('dist', { recursive: true });
   }
   
-  // Démarrer les watchers Imba natifs (compilation automatique au démarrage)
-  const watcherPromises = imbaFiles.map(file => {
-    if (fs.existsSync(file)) {
-      console.log(`🎯 Starting Imba native watcher for ${file}...`);
+  // Démarrer tous les watchers Imba en parallèle
+  const watcherPromises = imbaFiles
+    .filter(file => fs.existsSync(file))
+    .map(file => {
       return imbaWatcher.startWatching(file, config);
-    }
-  }).filter(Boolean);
+    });
   
-  // Compiler les autres fichiers une seule fois
-  if (otherFiles.length > 0) {
-    console.log(`📦 Building non-Imba files...`);
-    for (const file of otherFiles) {
-      if (fs.existsSync(file)) {
+  // Compiler les autres fichiers en parallèle avec les watchers Imba
+  const otherFilesPromise = Promise.all(
+    otherFiles
+      .filter(file => fs.existsSync(file))
+      .map(async (file) => {
+        console.log(`📦 Building ${file}...`);
         await buildFile(file, config);
-      }
-    }
+        return file;
+      })
+  );
+  
+  // Attendre que tous les builds initiaux soient terminés
+  try {
+    const [imbaResults, otherResults] = await Promise.all([
+      Promise.all(watcherPromises),
+      otherFilesPromise
+    ]);
+    
+    console.log(`\n🎉 Initial compilation completed!`);
+    console.log(`   - Imba files: ${imbaResults.length} watchers started`);
+    console.log(`   - Other files: ${otherResults.length} files built`);
+    
+  } catch (error) {
+    console.error('❌ Error during initial compilation:', error.message);
   }
   
   // Générer le manifest initial
   generateManifest(config.targetBrowser);
-  
-  console.log('\n🎉 Watch mode started!');
-  console.log('👁️  Watching for changes... (Press Ctrl+C to stop)\n');
+  console.log('\n👁️  Watching for changes... (Press Ctrl+C to stop)\n');
   
   // Fonction pour rebuild les autres fichiers
   async function rebuildFile(file, reason = 'File changed') {

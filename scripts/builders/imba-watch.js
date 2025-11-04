@@ -29,7 +29,7 @@ class ImbaWatcher {
         buildOptions += ' -d';
       }
       
-      console.log(`🎯 Starting Imba watcher for ${file}...`);
+      console.log(`🎯 Starting Imba native watcher for ${file}...`);
       
       const watcher = spawn('npx', [
         'imba', 'build', 
