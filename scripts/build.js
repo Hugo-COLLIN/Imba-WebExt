@@ -13,6 +13,11 @@ const files = [
 const isWatchMode = process.argv.includes('--watch') || process.argv.includes('-w');
 const isDev = process.argv.includes('--dev') || process.argv.includes('-d');
 
+// Déterminer le navigateur cible
+const targetBrowser = process.env.TARGET_BROWSER || 
+  (process.argv.find(arg => arg.startsWith('--browser='))?.split('=')[1]) || 
+  'chrome';
+
 // Créer le dossier dist vierge
 if (fs.existsSync('dist')) fs.rmSync('dist', { recursive: true, force: true });
 fs.mkdirSync('dist', { recursive: true });
@@ -81,6 +86,156 @@ function copyAssetsRecursively(srcDir, destDir) {
   });
 }
 
+// === GÉNÉRATION DU MANIFEST ===
+function readJsonFile(filePath) {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(content);
+  } catch (error) {
+    console.warn(`⚠️  Unable to read ${filePath}:`, error.message);
+    return {};
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+// Convertit les chemins sources (.imba) en chemins de sortie (.js)
+function convertSourcePathToOutput(sourcePath) {
+  if (!sourcePath || typeof sourcePath !== 'string') {
+    return sourcePath;
+  }
+
+  // Convertir les chemins relatifs src/ vers les chemins de sortie
+  if (sourcePath.startsWith('src/')) {
+    const relativePath = sourcePath.substring(4); // Enlever 'src/'
+    
+    if (sourcePath.endsWith('.imba')) {
+      return relativePath.replace(/\.imba$/, '.js');
+    } else if (sourcePath.endsWith('.html')) {
+      return relativePath;
+    }
+  }
+
+  // Pour les fichiers .imba sans préfixe src/
+  if (sourcePath.endsWith('.imba')) {
+    return sourcePath.replace(/\.imba$/, '.js');
+  }
+
+  return sourcePath;
+}
+
+function generateManifest(targetBrowser, version) {
+  const srcManifestPath = path.join(process.cwd(), 'src', 'manifest.json');
+  const distManifestPath = path.join(process.cwd(), 'dist', 'manifest.json');
+  const pkgPath = path.join(process.cwd(), 'package.json');
+
+  const srcManifest = readJsonFile(srcManifestPath);
+  const pkg = readJsonFile(pkgPath);
+
+  console.log(`📋 Generating manifest for ${targetBrowser}...`);
+
+  // Manifest de base
+  let manifest = {
+    manifest_version: srcManifest[`{{${targetBrowser}}}.manifest_version`] || (targetBrowser === 'firefox' ? 2 : 3),
+    name: srcManifest.name || pkg.name || 'My Extension',
+    version: version || srcManifest.version || pkg.version || '1.0.0',
+    description: srcManifest.description || pkg.description || 'Extension developed with Imba',
+    homepage_url: srcManifest.homepage_url || pkg.homepage,
+  };
+
+  // Traitement récursif des propriétés avec la syntaxe {{browser}}
+  function processObject(obj, targetObj) {
+    for (const key in obj) {
+      if (!obj.hasOwnProperty(key)) continue;
+
+      const isBrowserSpecificKey = key.startsWith(`{{${targetBrowser}}}`);
+      const isOtherBrowserKey = key.startsWith('{{') && !isBrowserSpecificKey;
+
+      if (isOtherBrowserKey) continue;
+
+      let manifestKey;
+      if (isBrowserSpecificKey) {
+        manifestKey = key.replace(`{{${targetBrowser}}}.`, '');
+      } else if (!key.startsWith('{{')) {
+        manifestKey = key;
+      } else {
+        continue;
+      }
+
+      const value = obj[key];
+
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        targetObj[manifestKey] = {};
+        processObject(value, targetObj[manifestKey]);
+      } else if (Array.isArray(value)) {
+        targetObj[manifestKey] = value.map(item => {
+          if (typeof item === 'object' && item !== null) {
+            const processedItem = {};
+            processObject(item, processedItem);
+            return processedItem;
+          } else if (typeof item === 'string') {
+            return convertSourcePathToOutput(item);
+          }
+          return item;
+        });
+      } else if (typeof value === 'string') {
+        targetObj[manifestKey] = convertSourcePathToOutput(value);
+      } else {
+        targetObj[manifestKey] = value;
+      }
+    }
+  }
+
+  processObject(srcManifest, manifest);
+
+  // Adaptations spécifiques Firefox
+  if (targetBrowser === 'firefox') {
+    // Convertir service_worker en scripts pour Firefox MV2
+    if (manifest.background && manifest.background.service_worker) {
+      manifest.background = {
+        scripts: [manifest.background.service_worker],
+        persistent: false
+      };
+    }
+
+    // Convertir action en browser_action
+    if (manifest.action) {
+      manifest.browser_action = manifest.action;
+      delete manifest.action;
+    }
+
+    // Adapter options_ui
+    if (manifest.options_ui && manifest.options_ui.page) {
+      manifest.options_ui.open_in_tab = true;
+    }
+  }
+
+  // Nettoyage des propriétés vides
+  function cleanEmptyProperties(obj) {
+    Object.keys(obj).forEach(key => {
+      const value = obj[key];
+      if (value === null || value === undefined) {
+        delete obj[key];
+      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        cleanEmptyProperties(value);
+        if (Object.keys(value).length === 0) {
+          delete obj[key];
+        }
+      }
+    });
+  }
+
+  cleanEmptyProperties(manifest);
+
+  writeJsonFile(distManifestPath, manifest);
+  console.log(`✅ Manifest generated: ${distManifestPath}`);
+}
+
+// === FONCTIONS DE BUILD ===
 function buildImbaFile(file) {
   const fileName = path.basename(file, '.imba');
   const tempDir = generateTempDir();
@@ -225,7 +380,7 @@ function buildFile(file) {
 }
 
 function buildAll() {
-  console.log('🚀 Starting Imba compilation...\n');
+  console.log(`🚀 Starting Imba compilation for ${targetBrowser}...\n`);
   
   // Compiler tous les fichiers séquentiellement
   for (const file of files) {
@@ -235,6 +390,10 @@ function buildAll() {
       console.warn(`⚠️  File not found: ${file}`);
     }
   }
+  
+  // Générer le manifest après la compilation
+  console.log('');
+  generateManifest(targetBrowser);
   
   console.log('\n🎉 All files compiled successfully!');
 }
