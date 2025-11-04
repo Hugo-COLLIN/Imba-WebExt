@@ -1,21 +1,13 @@
-// builders/watch.js (modifié)
 const fs = require('fs');
 const { buildFile } = require('./build-all');
 const { generateManifest } = require('../manifest/generator');
 const { ImbaWatcher } = require('./imba-watch');
 
 /**
- * Démarre le mode watch hybride
+ * Démarre le mode watch hybride sans build initial
  */
 async function startWatchMode(files, config) {
   console.log(`👀 Starting hybrid watch mode for ${config.targetBrowser}...\n`);
-  
-  // Build initial
-  const { buildAll } = require('./build-all');
-  await buildAll(files, config);
-  
-  console.log('\n🎉 Initial build completed!');
-  console.log('👁️  Starting watchers... (Press Ctrl+C to stop)\n');
   
   const imbaWatcher = new ImbaWatcher();
   
@@ -26,13 +18,34 @@ async function startWatchMode(files, config) {
   );
   const otherFiles = files.filter(file => !imbaFiles.includes(file));
   
-  // Démarrer les watchers Imba natifs pour les fichiers .imba et .html avec composants Imba
-  imbaFiles.forEach(file => {
+  // S'assurer que le dossier dist existe
+  if (!fs.existsSync('dist')) {
+    fs.mkdirSync('dist', { recursive: true });
+  }
+  
+  // Démarrer les watchers Imba natifs (compilation automatique au démarrage)
+  const watcherPromises = imbaFiles.map(file => {
     if (fs.existsSync(file)) {
       console.log(`🎯 Starting Imba native watcher for ${file}...`);
-      imbaWatcher.startWatching(file, config);
+      return imbaWatcher.startWatching(file, config);
     }
-  });
+  }).filter(Boolean);
+  
+  // Compiler les autres fichiers une seule fois
+  if (otherFiles.length > 0) {
+    console.log(`📦 Building non-Imba files...`);
+    for (const file of otherFiles) {
+      if (fs.existsSync(file)) {
+        await buildFile(file, config);
+      }
+    }
+  }
+  
+  // Générer le manifest initial
+  generateManifest(config.targetBrowser);
+  
+  console.log('\n🎉 Watch mode started!');
+  console.log('👁️  Watching for changes... (Press Ctrl+C to stop)\n');
   
   // Fonction pour rebuild les autres fichiers
   async function rebuildFile(file, reason = 'File changed') {

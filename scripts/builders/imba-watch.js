@@ -1,4 +1,3 @@
-// builders/imba-watch.js (nouveau fichier)
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -12,55 +11,79 @@ class ImbaWatcher {
   constructor() {
     this.watchers = new Map();
     this.tempDirs = new Map();
+    this.initialBuildComplete = new Map();
   }
 
   /**
    * Démarre un watcher Imba pour un fichier spécifique
    */
   startWatching(file, config) {
-    const fileName = path.basename(file, path.extname(file));
-    const tempDir = generateTempDir();
-    this.tempDirs.set(file, tempDir);
-    
-    let buildOptions = '--esm -M --base . --watch';
-    if (config.isDev) {
-      buildOptions += ' -d';
-    }
-    
-    const command = `npx imba build ${buildOptions} -o "${tempDir}" "${file}"`;
-    console.log(`🎯 Starting Imba watcher for ${file}...`);
-    
-    const watcher = spawn('npx', [
-      'imba', 'build', 
-      ...buildOptions.split(' ').filter(opt => opt),
-      '-o', tempDir,
-      file
-    ], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: true
-    });
-
-    // Gérer la sortie du processus
-    watcher.stdout.on('data', (data) => {
-      const output = data.toString();
-      if (output.includes('built') || output.includes('compiled')) {
-        this.handleFileChange(file, config);
+    return new Promise((resolve) => {
+      const fileName = path.basename(file, path.extname(file));
+      const tempDir = generateTempDir();
+      this.tempDirs.set(file, tempDir);
+      this.initialBuildComplete.set(file, false);
+      
+      let buildOptions = '--esm -M --base . --watch';
+      if (config.isDev) {
+        buildOptions += ' -d';
       }
-    });
+      
+      console.log(`🎯 Starting Imba watcher for ${file}...`);
+      
+      const watcher = spawn('npx', [
+        'imba', 'build', 
+        ...buildOptions.split(' ').filter(opt => opt),
+        '-o', tempDir,
+        file
+      ], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true
+      });
 
-    watcher.stderr.on('data', (data) => {
-      const error = data.toString();
-      if (!error.includes('[WARNING]')) {
-        console.error(`❌ Imba watcher error for ${file}:`, error);
-      }
-    });
+      // Gérer la sortie du processus
+      watcher.stdout.on('data', (data) => {
+        const output = data.toString();
+        
+        if (output.includes('built') || output.includes('compiled')) {
+          this.handleFileChange(file, config);
+          
+          // Résoudre la promesse après le premier build
+          if (!this.initialBuildComplete.get(file)) {
+            this.initialBuildComplete.set(file, true);
+            console.log(`✅ Initial build completed for ${file}`);
+            resolve();
+          }
+        }
+      });
 
-    watcher.on('close', (code) => {
-      console.log(`🛑 Imba watcher for ${file} stopped (code: ${code})`);
-    });
+      watcher.stderr.on('data', (data) => {
+        const error = data.toString();
+        if (!error.includes('[WARNING]')) {
+          console.error(`❌ Imba watcher error for ${file}:`, error);
+        }
+      });
 
-    this.watchers.set(file, watcher);
-    return watcher;
+      watcher.on('close', (code) => {
+        console.log(`🛑 Imba watcher for ${file} stopped (code: ${code})`);
+      });
+
+      watcher.on('error', (error) => {
+        console.error(`❌ Failed to start watcher for ${file}:`, error);
+        resolve(); // Résoudre même en cas d'erreur pour ne pas bloquer
+      });
+
+      this.watchers.set(file, watcher);
+      
+      // Timeout de sécurité pour le build initial
+      setTimeout(() => {
+        if (!this.initialBuildComplete.get(file)) {
+          console.log(`⏰ Initial build timeout for ${file}, continuing...`);
+          this.initialBuildComplete.set(file, true);
+          resolve();
+        }
+      }, 10000); // 10 secondes max pour le build initial
+    });
   }
 
   /**
@@ -78,7 +101,10 @@ class ImbaWatcher {
         await this.copyHtmlOutput(file, fileName, tempDir);
       }
       
-      console.log(`✅ ${file} recompiled and copied`);
+      // Ne pas afficher le message pour le build initial
+      if (this.initialBuildComplete.get(file)) {
+        console.log(`✅ ${file} recompiled and copied`);
+      }
     } catch (error) {
       console.error(`❌ Error handling change for ${file}:`, error.message);
     }
@@ -145,6 +171,7 @@ class ImbaWatcher {
     });
     this.watchers.clear();
     this.tempDirs.clear();
+    this.initialBuildComplete.clear();
   }
 }
 
