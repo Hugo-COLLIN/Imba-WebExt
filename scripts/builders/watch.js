@@ -122,6 +122,20 @@ async function startWatchMode(files, config) {
       }
     });
   }
+
+  // Surveiller le fichier LICENSE avec polling
+  const licenseFile = 'LICENSE';
+  if (fs.existsSync(licenseFile)) {
+    console.log(`🔍 Watching ${licenseFile} with polling...`);
+    fs.watchFile(licenseFile, { interval: 1000 }, (curr, prev) => {
+      if (curr.mtime !== prev.mtime) {
+        console.log(`\n🔄 LICENSE file changed: ${licenseFile}`);
+        const { copyRootFile } = require('../utils/assets');
+        copyRootFile('LICENSE');
+        console.log('✅ LICENSE updated\n');
+      }
+    });
+  }
   
   // Gestion propre de l'arrêt
   process.on('SIGINT', () => {

@@ -37,7 +37,24 @@ function copyAssetsFolder(srcDir, destDir) {
 }
 
 /**
- * Combine les assets de src/assets avec ceux générés par Imba
+ * Copie un fichier individuel vers dist/
+ */
+function copyRootFile(fileName) {
+  const srcFile = fileName;
+  const destFile = path.join('dist', fileName);
+  
+  if (fs.existsSync(srcFile)) {
+    fs.copyFileSync(srcFile, destFile);
+    console.log(`✅ Root file: ${fileName} → dist/${fileName}`);
+    return true;
+  } else {
+    console.log(`⚠️  Root file not found: ${fileName}`);
+    return false;
+  }
+}
+
+/**
+ * Combine les assets de src/assets avec ceux générés par Imba et copie les fichiers racine
  */
 function combineAssets() {
   const srcAssetsDir = 'src/assets';
@@ -52,7 +69,22 @@ function combineAssets() {
     console.log('ℹ️  No assets found in src/assets/');
   }
   
-  return copiedFiles;
+  // Copier les fichiers racine
+  console.log('📄 Copying root files...');
+  const rootFiles = ['LICENSE'];
+  let rootFilesCopied = 0;
+  
+  rootFiles.forEach(file => {
+    if (copyRootFile(file)) {
+      rootFilesCopied++;
+    }
+  });
+  
+  if (rootFilesCopied > 0) {
+    console.log(`✅ Copied ${rootFilesCopied} root file(s) to dist/`);
+  }
+  
+  return { assets: copiedFiles, rootFiles: rootFilesCopied };
 }
 
-module.exports = { copyAssetsFolder, combineAssets };
+module.exports = { copyAssetsFolder, combineAssets, copyRootFile };
