@@ -2,43 +2,48 @@ const fs = require('fs');
 const path = require('path');
 const { buildImbaFile } = require('./imba');
 const { buildHtmlFile } = require('./html');
-const { generateManifest } = require('../manifest/generator');
 
 /**
  * Compile un fichier en fonction de son extension
  */
-function buildFile(file, config) {
+async function buildFile(file, config) {
   const ext = path.extname(file);
-  
+
   if (ext === '.imba') {
-    buildImbaFile(file, config);
+    await buildImbaFile(file, config);
   } else if (ext === '.html') {
-    buildHtmlFile(file, config);
+    await buildHtmlFile(file, config);
   } else {
     console.warn(`⚠️  Unsupported file type: ${file}`);
   }
 }
 
 /**
- * Compile tous les fichiers
+ * Compile tous les fichiers en parallèle
  */
-function buildAll(files, config) {
+async function buildAll(files, config) {
   console.log(`🚀 Starting Imba compilation for ${config.targetBrowser}...\n`);
-  
-  // Compiler tous les fichiers séquentiellement
-  for (const file of files) {
+
+  const existingFiles = files.filter(file => {
     if (fs.existsSync(file)) {
-      buildFile(file, config);
+      return true;
     } else {
       console.warn(`⚠️  File not found: ${file}`);
+      return false;
+    }
+  });
+
+  try {
+    // Attendre que toutes les builds soient vraiment terminées
+    await Promise.all(existingFiles.map(file => buildFile(file, config)));
+
+    console.log('\n🎉 All files compiled successfully!');
+  } catch (error) {
+    console.error('\n❌ Build failed:', error.message);
+    if (!config.isWatchMode) {
+      process.exit(1);
     }
   }
-  
-  // Générer le manifest après la compilation
-  console.log('');
-  generateManifest(config.targetBrowser);
-  
-  console.log('\n🎉 All files compiled successfully!');
 }
 
 module.exports = { buildFile, buildAll };

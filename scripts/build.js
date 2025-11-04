@@ -20,12 +20,16 @@ const config = parseArguments(process.argv);
 cleanDist();
 ensureTempDir();
 
-// Générer le manifest initial
-generateManifest(config.targetBrowser);
-
 // Exécution
 if (config.isWatchMode) {
   startWatchMode(files, config);
 } else {
-  buildAll(files, config);
+  buildAll(files, config).catch(error => {
+    console.error('Build failed:', error);
+    process.exit(1);
+  });
 }
+
+// Générer le manifest
+console.log('');
+generateManifest(config.targetBrowser);

@@ -5,25 +5,29 @@ const { generateManifest } = require('../manifest/generator');
 /**
  * Démarre le mode watch
  */
-function startWatchMode(files, config) {
+async function startWatchMode(files, config) {
   console.log(`👀 Starting watch mode for ${config.targetBrowser}...\n`);
   
   // Build initial
   const { buildAll } = require('./build-all');
-  buildAll(files, config);
+  await buildAll(files, config);
   
   // Surveiller les fichiers principaux
   files.forEach(file => {
     if (fs.existsSync(file)) {
       console.log(`🔍 Watching ${file}...`);
-      fs.watchFile(file, { interval: 1000 }, (curr, prev) => {
+      fs.watchFile(file, { interval: 1000 }, async (curr, prev) => {
         if (curr.mtime !== prev.mtime) {
           console.log(`\n🔄 File changed: ${file}`);
-          buildFile(file, config);
-          
-          // Régénérer le manifest après chaque changement
-          console.log('');
-          generateManifest(config.targetBrowser);
+          try {
+            await buildFile(file, config);
+            
+            // Régénérer le manifest après chaque changement
+            console.log('');
+            generateManifest(config.targetBrowser);
+          } catch (error) {
+            console.error('Build failed:', error.message);
+          }
         }
       });
     }
@@ -38,17 +42,21 @@ function startWatchMode(files, config) {
   imbaFilesToWatch.forEach(file => {
     if (fs.existsSync(file)) {
       console.log(`🔍 Watching ${file} (referenced by HTML)...`);
-      fs.watchFile(file, { interval: 1000 }, (curr, prev) => {
+      fs.watchFile(file, { interval: 1000 }, async (curr, prev) => {
         if (curr.mtime !== prev.mtime) {
           console.log(`\n🔄 Imba file changed: ${file}`);
           // Recompiler le fichier HTML correspondant
           const htmlFile = file.replace('.imba', '.html');
           if (files.includes(htmlFile)) {
-            buildFile(htmlFile, config);
-            
-            // Régénérer le manifest
-            console.log('');
-            generateManifest(config.targetBrowser);
+            try {
+              await buildFile(htmlFile, config);
+              
+              // Régénérer le manifest
+              console.log('');
+              generateManifest(config.targetBrowser);
+            } catch (error) {
+              console.error('Build failed:', error.message);
+            }
           }
         }
       });
