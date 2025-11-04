@@ -16,9 +16,10 @@ function cleanDist() {
  * Crée le dossier temp s'il n'existe pas
  */
 function ensureTempDir() {
-  if (!fs.existsSync('temp.local')) {
-    fs.mkdirSync('temp.local', { recursive: true });
+  if (fs.existsSync('temp.local')) {
+    fs.rmSync('temp.local', { recursive: true, force: true });
   }
+  fs.mkdirSync('temp.local', { recursive: true });
 }
 
 /**
