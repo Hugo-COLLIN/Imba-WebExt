@@ -1,10 +1,10 @@
-console.log "Content script loaded on:", window.location.href
+# console.log "Content script loaded on:", window.location.href
+console.log "Content script loaded"
 
 # Injection d'un élément dans la page
 const injectedElement = <div>
 	<p> "Extension Imba active!"
-	<style>
-		position: fixed
+	css position: fixed
 		top: 10px
 		right: 10px
 		background: #4CAF50

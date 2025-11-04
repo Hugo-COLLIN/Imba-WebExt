@@ -42,6 +42,7 @@ tag PopupApp
 			<h1> "Extension Imba"
 			<p> "Compteur: {count}"
 			<button @click=increment> "Incrémenter"
+			<button @click=(count--)> "Decrement"
 			<button @click=openOptions> "Options"
 
 # Monter l'application
