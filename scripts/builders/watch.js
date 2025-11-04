@@ -12,28 +12,34 @@ async function startWatchMode(files, config) {
   const { buildAll } = require('./build-all');
   await buildAll(files, config);
   
-  // Surveiller les fichiers principaux
+  console.log('\n🎉 Initial build completed!');
+  console.log('👁️  Watching for changes... (Press Ctrl+C to stop)\n');
+  
+  // Fonction pour rebuild
+  async function rebuildFile(file, reason = 'File changed') {
+    console.log(`\n🔄 ${reason}: ${file}`);
+    try {
+      await buildFile(file, config);
+      generateManifest(config.targetBrowser);
+      console.log('✅ Rebuild completed\n');
+    } catch (error) {
+      console.error('❌ Build failed:', error.message);
+    }
+  }
+  
+  // Surveiller les fichiers
   files.forEach(file => {
     if (fs.existsSync(file)) {
       console.log(`🔍 Watching ${file}...`);
       fs.watchFile(file, { interval: 1000 }, async (curr, prev) => {
         if (curr.mtime !== prev.mtime) {
-          console.log(`\n🔄 File changed: ${file}`);
-          try {
-            await buildFile(file, config);
-            
-            // Régénérer le manifest après chaque changement
-            console.log('');
-            generateManifest(config.targetBrowser);
-          } catch (error) {
-            console.error('Build failed:', error.message);
-          }
+          await rebuildFile(file);
         }
       });
     }
   });
   
-  // Surveiller les fichiers .imba référencés par les HTML
+  // Surveiller les fichiers .imba référencés
   const imbaFilesToWatch = [
     'src/options/options.imba',
     'src/popup/popup.imba'
@@ -44,26 +50,16 @@ async function startWatchMode(files, config) {
       console.log(`🔍 Watching ${file} (referenced by HTML)...`);
       fs.watchFile(file, { interval: 1000 }, async (curr, prev) => {
         if (curr.mtime !== prev.mtime) {
-          console.log(`\n🔄 Imba file changed: ${file}`);
-          // Recompiler le fichier HTML correspondant
           const htmlFile = file.replace('.imba', '.html');
           if (files.includes(htmlFile)) {
-            try {
-              await buildFile(htmlFile, config);
-              
-              // Régénérer le manifest
-              console.log('');
-              generateManifest(config.targetBrowser);
-            } catch (error) {
-              console.error('Build failed:', error.message);
-            }
+            await rebuildFile(htmlFile, `Imba file changed`);
           }
         }
       });
     }
   });
   
-  // Surveiller le manifest source
+  // Surveiller le manifest
   const manifestFile = 'src/manifest.json';
   if (fs.existsSync(manifestFile)) {
     console.log(`🔍 Watching ${manifestFile}...`);
@@ -71,20 +67,19 @@ async function startWatchMode(files, config) {
       if (curr.mtime !== prev.mtime) {
         console.log(`\n🔄 Manifest changed: ${manifestFile}`);
         generateManifest(config.targetBrowser);
+        console.log('✅ Manifest updated\n');
       }
     });
   }
   
-  console.log('\n👁️  Watching for changes... (Press Ctrl+C to stop)');
-  
-  // Gestion de l'arrêt propre
+  // Gestion propre de l'arrêt
   process.on('SIGINT', () => {
     console.log('\n🛑 Stopping watch mode...');
-    files.forEach(file => fs.unwatchFile(file));
-    imbaFilesToWatch.forEach(file => fs.unwatchFile(file));
-    fs.unwatchFile(manifestFile);
-    process.exit();
+    process.exit(0);
   });
+  
+  // Maintenir le processus actif
+  process.stdin.resume();
 }
 
 module.exports = { startWatchMode };
