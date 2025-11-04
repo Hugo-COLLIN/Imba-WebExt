@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { 
@@ -9,9 +9,6 @@ const {
   cleanupTempDir 
 } = require('../utils/fs');
 
-/**
- * Compile un fichier HTML avec Imba (version asynchrone)
- */
 function buildHtmlFile(file, config) {
   return new Promise((resolve) => {
     const fileName = path.basename(file, '.html');
@@ -25,97 +22,70 @@ function buildHtmlFile(file, config) {
       buildOptions += ' -d';
     }
     
-    // Compiler le fichier HTML avec Imba
-    const args = ['build', ...buildOptions.split(' '), '-o', tempDir, file];
+    const command = `npx imba build ${buildOptions} -o "${tempDir}" "${file}"`;
     
-    const imbaProcess = spawn('npx', ['imba', ...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true
-    });
-    
-    let stderr = '';
-    let stdout = '';
-    let hasResolved = false;
-    
-    const resolveOnce = () => {
-      if (hasResolved) return;
-      hasResolved = true;
-      
-      setTimeout(() => {
-        try {
-          // S'assurer que le dossier dist existe
-          if (!fs.existsSync('dist')) {
-            fs.mkdirSync('dist', { recursive: true });
+    exec(command, { 
+      timeout: 15000, // 15 secondes pour les HTML (plus longs à compiler)
+      maxBuffer: 1024 * 1024 * 10
+    }, (error, stdout, stderr) => {
+      try {
+        // Vérifier si c'est une vraie erreur ou juste des warnings
+        const isRealError = error && (
+          !fs.existsSync(tempDir) || 
+          fs.readdirSync(tempDir).length === 0 ||
+          (stderr && stderr.includes('Error:') && !stderr.includes('[WARNING]'))
+        );
+        
+        if (isRealError) {
+          console.log(`❌ ${file} compilation failed: ${error.message}`);
+          if (stderr && !stderr.includes('[WARNING]')) {
+            console.log(`   Error: ${stderr.trim()}`);
           }
-          
-          // Copier le fichier HTML
-          const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
-          if (fs.existsSync(tempHtmlFile)) {
-            fs.copyFileSync(tempHtmlFile, outputHtmlFile);
-            fixBackslashesInHtml(outputHtmlFile);
-            console.log(`✅ ${file} → ${outputHtmlFile}`);
-          }
-          
-          // Copier les assets
-          const assetsDir = path.join(tempDir, 'assets');
-          if (fs.existsSync(assetsDir)) {
-            const distAssetsDir = path.join('dist', 'assets');
-            copyAssetsRecursively(assetsDir, distAssetsDir);
-            
-            const assetFiles = fs.readdirSync(assetsDir);
-            assetFiles.forEach(asset => {
-              console.log(`✅ Asset: ${asset} → dist/assets/${asset}`);
-            });
-          }
-          
-          // Chercher le fichier JS principal
-          const generatedJsFile = findGeneratedFile(tempDir, fileName);
-          if (generatedJsFile && !generatedJsFile.includes('assets')) {
-            const outputJsFile = path.join('dist', `${fileName}.js`);
-            fs.copyFileSync(generatedJsFile, outputJsFile);
-            console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
-          }
-          
-        } catch (error) {
-          console.log(`⚠️ Warning processing ${file}: ${error.message}`);
-        } finally {
-          cleanupTempDir(tempDir);
-          resolve();
+        } else if (stderr && stderr.includes('[WARNING]')) {
+          // Afficher les warnings mais ne pas les traiter comme des erreurs
+          console.log(`⚠️  ${file} compiled with warnings:`);
+          console.log(`   ${stderr.trim()}`);
         }
-      }, 100);
-    };
-    
-    imbaProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    imbaProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    const timeout = setTimeout(() => {
-      if (!hasResolved) {
-        console.log(`⏰ Timeout for ${file}`);
-        imbaProcess.kill('SIGTERM');
-        resolveOnce();
+        
+        // S'assurer que le dossier dist existe
+        if (!fs.existsSync('dist')) {
+          fs.mkdirSync('dist', { recursive: true });
+        }
+        
+        // Copier le fichier HTML
+        const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
+        if (fs.existsSync(tempHtmlFile)) {
+          fs.copyFileSync(tempHtmlFile, outputHtmlFile);
+          fixBackslashesInHtml(outputHtmlFile);
+          console.log(`✅ ${file} → ${outputHtmlFile}`);
+        }
+        
+        // Copier les assets
+        const assetsDir = path.join(tempDir, 'assets');
+        if (fs.existsSync(assetsDir)) {
+          const distAssetsDir = path.join('dist', 'assets');
+          copyAssetsRecursively(assetsDir, distAssetsDir);
+          
+          const assetFiles = fs.readdirSync(assetsDir);
+          assetFiles.forEach(asset => {
+            console.log(`✅ Asset: ${asset} → dist/assets/${asset}`);
+          });
+        }
+        
+        // Chercher le fichier JS principal
+        const generatedJsFile = findGeneratedFile(tempDir, fileName);
+        if (generatedJsFile && !generatedJsFile.includes('assets')) {
+          const outputJsFile = path.join('dist', `${fileName}.js`);
+          fs.copyFileSync(generatedJsFile, outputJsFile);
+          console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
+        }
+        
+      } catch (processError) {
+        console.log(`⚠️ Warning processing ${file}: ${processError.message}`);
+      } finally {
+        cleanupTempDir(tempDir);
+        resolve();
       }
-    }, 15000);
-    
-    imbaProcess.on('close', (code) => {
-      clearTimeout(timeout);
-      
-      if (code !== 0 && code !== null) {
-        console.log(`❌ ${file} compilation failed with code ${code}`);
-        if (stderr) console.log(`   Error: ${stderr.trim()}`);
-      }
-      
-      resolveOnce();
-    });
-    
-    imbaProcess.on('error', (error) => {
-      clearTimeout(timeout);
-      console.log(`❌ Failed to start compiler for ${file}: ${error.message}`);
-      resolveOnce();
     });
   });
 }

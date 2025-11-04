@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { 
@@ -7,9 +7,6 @@ const {
   cleanupTempDir 
 } = require('../utils/fs');
 
-/**
- * Compile un fichier .imba (version asynchrone)
- */
 function buildImbaFile(file, config) {
   return new Promise((resolve) => {
     const fileName = path.basename(file, '.imba');
@@ -23,77 +20,51 @@ function buildImbaFile(file, config) {
       buildOptions += ' -d';
     }
     
-    // Compiler dans le dossier temporaire unique
-    const args = ['build', ...buildOptions.split(' '), '-o', tempDir, file];
+    const command = `npx imba build ${buildOptions} -o "${tempDir}" "${file}"`;
     
-    const imbaProcess = spawn('npx', ['imba', ...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true
-    });
-    
-    let stderr = '';
-    let stdout = '';
-    let hasResolved = false; // Flag pour éviter les résolutions multiples
-    
-    const resolveOnce = () => {
-      if (hasResolved) return;
-      hasResolved = true;
-      
-      // Traitement des fichiers après un petit délai
-      setTimeout(() => {
-        try {
-          const generatedFile = findGeneratedFile(tempDir, fileName);
-          
-          if (generatedFile) {
-            if (!fs.existsSync('dist')) {
-              fs.mkdirSync('dist', { recursive: true });
-            }
-            
-            fs.copyFileSync(generatedFile, outputFile);
-            console.log(`✅ ${file} → ${outputFile}`);
+    exec(command, { 
+      timeout: 10000, // Réduire à 10 secondes
+      maxBuffer: 1024 * 1024 * 10
+    }, (error, stdout, stderr) => {
+      try {
+        // Vérifier si c'est une vraie erreur ou juste des warnings
+        const isRealError = error && (
+          !fs.existsSync(tempDir) || 
+          fs.readdirSync(tempDir).length === 0 ||
+          (stderr && stderr.includes('Error:') && !stderr.includes('[WARNING]'))
+        );
+        
+        if (isRealError) {
+          console.log(`❌ ${file} compilation failed: ${error.message}`);
+          if (stderr && !stderr.includes('[WARNING]')) {
+            console.log(`   Error: ${stderr.trim()}`);
           }
-        } catch (error) {
-          console.log(`⚠️ Warning processing ${file}: ${error.message}`);
-        } finally {
-          cleanupTempDir(tempDir);
-          resolve();
+        } else if (stderr && stderr.includes('[WARNING]')) {
+          // Afficher les warnings mais ne pas les traiter comme des erreurs
+          console.log(`⚠️ ${file}  compiled with warnings:`);
+          console.log(`   ${stderr.trim()}`);
         }
-      }, 100);
-    };
-    
-    imbaProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    imbaProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    // Timeout de sécurité
-    const timeout = setTimeout(() => {
-      if (!hasResolved) {
-        console.log(`⏰ Timeout for ${file}`);
-        imbaProcess.kill('SIGTERM');
-        resolveOnce();
+        
+        // Traitement des fichiers (même s'il y a eu des warnings)
+        const generatedFile = findGeneratedFile(tempDir, fileName);
+        
+        if (generatedFile) {
+          if (!fs.existsSync('dist')) {
+            fs.mkdirSync('dist', { recursive: true });
+          }
+          
+          fs.copyFileSync(generatedFile, outputFile);
+          console.log(`✅ ${file} → ${outputFile}`);
+        } else {
+          console.log(`⚠️ No output file found for ${file}`);
+        }
+        
+      } catch (processError) {
+        console.log(`⚠️ Warning processing ${file}: ${processError.message}`);
+      } finally {
+        cleanupTempDir(tempDir);
+        resolve();
       }
-    }, 15000);
-    
-    // Écouter seulement l'événement 'close' qui est le dernier à être émis
-    imbaProcess.on('close', (code) => {
-      clearTimeout(timeout);
-      
-      if (code !== 0 && code !== null) {
-        console.log(`❌ ${file} compilation failed with code ${code}`);
-        if (stderr) console.log(`   Error: ${stderr.trim()}`);
-      }
-      
-      resolveOnce();
-    });
-    
-    imbaProcess.on('error', (error) => {
-      clearTimeout(timeout);
-      console.log(`❌ Failed to start compiler for ${file}: ${error.message}`);
-      resolveOnce();
     });
   });
 }
