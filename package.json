@@ -1,5 +1,6 @@
 {
   "name": "Imba-WebExt",
+  "version": "1.0.0",
   "scripts": {
     "build": "node scripts/build.js",
     "build:chrome": "node scripts/build.js --browser=chrome",
@@ -8,9 +9,13 @@
     "dev": "node scripts/build.js --watch --dev",
     "dev:chrome": "node scripts/build.js --watch --dev --browser=chrome",
     "dev:firefox": "node scripts/build.js --watch --dev --browser=firefox",
-    "watch": "node scripts/build.js --watch"
+    "watch": "node scripts/build.js --watch",
+    "prod": "npm run prod:chrome && npm run prod:firefox",
+    "prod:chrome": "node scripts/build.js --browser=chrome && node scripts/zip.js --browser=chrome",
+    "prod:firefox": "node scripts/build.js --browser=firefox && node scripts/zip.js --browser=firefox"
   },
   "devDependencies": {
+    "archiver": "^7.0.1",
     "imba": "^2.0.0-alpha.247"
   }
 }
