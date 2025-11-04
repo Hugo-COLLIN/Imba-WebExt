@@ -86,6 +86,24 @@ function copyAssetsRecursively(srcDir, destDir) {
   });
 }
 
+// Fonction pour corriger les backslashes dans les fichiers HTML
+function fixBackslashesInHtml(filePath) {
+  try {
+    let content = fs.readFileSync(filePath, 'utf8');
+    
+    // Remplacer tous les backslashes par des slashes dans les attributs href et src
+    content = content.replace(/(href|src)=['"]([^'"]*)['"]/g, (match, attr, path) => {
+      const fixedPath = path.replace(/\\/g, '/');
+      return `${attr}='${fixedPath}'`;
+    });
+    
+    fs.writeFileSync(filePath, content, 'utf8');
+    console.log(`🔧 Fixed backslashes in ${filePath}`);
+  } catch (error) {
+    console.warn(`⚠️  Could not fix backslashes in ${filePath}:`, error.message);
+  }
+}
+
 // === GÉNÉRATION DU MANIFEST ===
 function readJsonFile(filePath) {
   try {
@@ -103,7 +121,7 @@ function writeJsonFile(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
-// Convertit les chemins sources (.imba) en chemins de sortie (.js)
+// Convertit les chemins sources vers les chemins de sortie réels
 function convertSourcePathToOutput(sourcePath) {
   if (!sourcePath || typeof sourcePath !== 'string') {
     return sourcePath;
@@ -114,15 +132,20 @@ function convertSourcePathToOutput(sourcePath) {
     const relativePath = sourcePath.substring(4); // Enlever 'src/'
     
     if (sourcePath.endsWith('.imba')) {
-      return relativePath.replace(/\.imba$/, '.js');
+      // Les fichiers .imba deviennent .js à la racine de dist/
+      const fileName = path.basename(relativePath, '.imba');
+      return `${fileName}.js`;
     } else if (sourcePath.endsWith('.html')) {
-      return relativePath;
+      // Les fichiers HTML vont à la racine de dist/ avec juste le nom de fichier
+      const fileName = path.basename(relativePath);
+      return fileName;
     }
   }
 
   // Pour les fichiers .imba sans préfixe src/
   if (sourcePath.endsWith('.imba')) {
-    return sourcePath.replace(/\.imba$/, '.js');
+    const fileName = path.basename(sourcePath, '.imba');
+    return `${fileName}.js`;
   }
 
   return sourcePath;
@@ -292,7 +315,7 @@ function buildImbaFile(file) {
 function buildHtmlFile(file) {
   const fileName = path.basename(file, '.html');
   const tempDir = generateTempDir();
-  const outputHtmlFile = path.join('dist', `${fileName}.html`);
+  const outputHtmlFile = path.join('dist', `${fileName}.html`); // Directement à la racine
   
   try {
     console.log(`📦 Building ${file}...`);
@@ -310,6 +333,10 @@ function buildHtmlFile(file) {
     const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
     if (fs.existsSync(tempHtmlFile)) {
       fs.copyFileSync(tempHtmlFile, outputHtmlFile);
+      
+      // Corriger les backslashes dans le fichier HTML copié
+      fixBackslashesInHtml(outputHtmlFile);
+      
       console.log(`✅ ${file} → ${outputHtmlFile}`);
     }
     
@@ -399,7 +426,7 @@ function buildAll() {
 }
 
 function startWatchMode() {
-  console.log('👀 Starting watch mode...\n');
+  console.log(`👀 Starting watch mode for ${targetBrowser}...\n`);
   
   buildAll();
   
@@ -410,6 +437,10 @@ function startWatchMode() {
         if (curr.mtime !== prev.mtime) {
           console.log(`\n🔄 File changed: ${file}`);
           buildFile(file);
+          
+          // Régénérer le manifest après chaque changement
+          console.log('');
+          generateManifest(targetBrowser);
         }
       });
     }
@@ -431,11 +462,27 @@ function startWatchMode() {
           const htmlFile = file.replace('.imba', '.html');
           if (files.includes(htmlFile)) {
             buildFile(htmlFile);
+            
+            // Régénérer le manifest
+            console.log('');
+            generateManifest(targetBrowser);
           }
         }
       });
     }
   });
+  
+  // Surveiller aussi le manifest source
+  const manifestFile = 'src/manifest.json';
+  if (fs.existsSync(manifestFile)) {
+    console.log(`🔍 Watching ${manifestFile}...`);
+    fs.watchFile(manifestFile, { interval: 1000 }, (curr, prev) => {
+      if (curr.mtime !== prev.mtime) {
+        console.log(`\n🔄 Manifest changed: ${manifestFile}`);
+        generateManifest(targetBrowser);
+      }
+    });
+  }
   
   console.log('\n👁️  Watching for changes... (Press Ctrl+C to stop)');
   
@@ -443,6 +490,7 @@ function startWatchMode() {
     console.log('\n🛑 Stopping watch mode...');
     files.forEach(file => fs.unwatchFile(file));
     imbaFilesToWatch.forEach(file => fs.unwatchFile(file));
+    fs.unwatchFile(manifestFile);
     process.exit();
   });
 }
