@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { buildImbaFile } = require('./imba');
 const { buildHtmlFile } = require('./html');
+const { combineAssets } = require('../utils/assets');
 
 /**
  * Compile un fichier en fonction de son extension
@@ -19,7 +20,7 @@ async function buildFile(file, config) {
 }
 
 /**
- * Compile tous les fichiers en parallèle
+ * Compile tous les fichiers en parallèle et copie les assets
  */
 async function buildAll(files, config) {
   console.log(`🚀 Starting Imba compilation for ${config.targetBrowser}...\n`);
@@ -38,6 +39,11 @@ async function buildAll(files, config) {
     await Promise.all(existingFiles.map(file => buildFile(file, config)));
 
     console.log('\n🎉 All files compiled successfully!');
+    
+    // Copier les assets après la compilation
+    console.log('');
+    combineAssets();
+
   } catch (error) {
     console.error('\n❌ Build failed:', error.message);
     if (!config.isWatchMode) {
