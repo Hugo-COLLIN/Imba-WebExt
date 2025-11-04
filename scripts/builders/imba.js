@@ -7,6 +7,9 @@ const {
   cleanupTempDir 
 } = require('../utils/fs');
 
+/**
+ * Compile un fichier .imba (version asynchrone)
+ */
 function buildImbaFile(file, config) {
   return new Promise((resolve) => {
     const fileName = path.basename(file, '.imba');
@@ -22,30 +25,14 @@ function buildImbaFile(file, config) {
     
     const command = `npx imba build ${buildOptions} -o "${tempDir}" "${file}"`;
     
-    exec(command, { 
-      timeout: 10000, // Réduire à 10 secondes
-      maxBuffer: 1024 * 1024 * 10
-    }, (error, stdout, stderr) => {
+    let hasResolved = false;
+    let childProcess = null;
+    
+    const resolveOnce = () => {
+      if (hasResolved) return;
+      hasResolved = true;
+      
       try {
-        // Vérifier si c'est une vraie erreur ou juste des warnings
-        const isRealError = error && (
-          !fs.existsSync(tempDir) || 
-          fs.readdirSync(tempDir).length === 0 ||
-          (stderr && stderr.includes('Error:') && !stderr.includes('[WARNING]'))
-        );
-        
-        if (isRealError) {
-          console.log(`❌ ${file} compilation failed: ${error.message}`);
-          if (stderr && !stderr.includes('[WARNING]')) {
-            console.log(`   Error: ${stderr.trim()}`);
-          }
-        } else if (stderr && stderr.includes('[WARNING]')) {
-          // Afficher les warnings mais ne pas les traiter comme des erreurs
-          console.log(`⚠️ ${file}  compiled with warnings:`);
-          console.log(`   ${stderr.trim()}`);
-        }
-        
-        // Traitement des fichiers (même s'il y a eu des warnings)
         const generatedFile = findGeneratedFile(tempDir, fileName);
         
         if (generatedFile) {
@@ -58,12 +45,60 @@ function buildImbaFile(file, config) {
         } else {
           console.log(`⚠️ No output file found for ${file}`);
         }
-        
-      } catch (processError) {
-        console.log(`⚠️ Warning processing ${file}: ${processError.message}`);
+      } catch (error) {
+        console.log(`⚠️ Warning processing ${file}: ${error.message}`);
       } finally {
+        // Tuer le processus s'il est encore en cours
+        if (childProcess && !childProcess.killed) {
+          childProcess.kill('SIGTERM');
+        }
         cleanupTempDir(tempDir);
         resolve();
+      }
+    };
+    
+    // Surveiller la création du fichier de sortie
+    const expectedExtensions = ['.mjs', '.js'];
+    const checkInterval = setInterval(() => {
+      if (hasResolved) {
+        clearInterval(checkInterval);
+        return;
+      }
+      
+      // Vérifier si un fichier a été généré
+      for (const ext of expectedExtensions) {
+        const expectedFile = path.join(tempDir, `${fileName}${ext}`);
+        if (fs.existsSync(expectedFile)) {
+          clearInterval(checkInterval);
+          // Attendre un peu pour s'assurer que l'écriture est terminée
+          setTimeout(resolveOnce, 200);
+          return;
+        }
+      }
+    }, 100); // Vérifier toutes les 100ms
+    
+    // Timeout de sécurité (plus long mais ne devrait pas être atteint)
+    const timeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!hasResolved) {
+        console.log(`⏰ Timeout for ${file} (fallback)`);
+        resolveOnce();
+      }
+    }, 15000);
+    
+    // Lancer la compilation
+    childProcess = exec(command, { 
+      maxBuffer: 1024 * 1024 * 10
+    }, (error, stdout, stderr) => {
+      clearTimeout(timeout);
+      clearInterval(checkInterval);
+      
+      // Si le fichier n'a pas encore été traité, le faire maintenant
+      if (!hasResolved) {
+        if (stderr && stderr.includes('[WARNING]')) {
+          console.log(`⚠️ ${file} compiled with warnings`);
+        }
+        resolveOnce();
       }
     });
   });

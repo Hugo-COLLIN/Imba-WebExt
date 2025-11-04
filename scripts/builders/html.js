@@ -9,6 +9,9 @@ const {
   cleanupTempDir 
 } = require('../utils/fs');
 
+/**
+ * Compile un fichier HTML avec Imba (version asynchrone)
+ */
 function buildHtmlFile(file, config) {
   return new Promise((resolve) => {
     const fileName = path.basename(file, '.html');
@@ -24,29 +27,14 @@ function buildHtmlFile(file, config) {
     
     const command = `npx imba build ${buildOptions} -o "${tempDir}" "${file}"`;
     
-    exec(command, { 
-      timeout: 15000, // 15 secondes pour les HTML (plus longs à compiler)
-      maxBuffer: 1024 * 1024 * 10
-    }, (error, stdout, stderr) => {
+    let hasResolved = false;
+    let childProcess = null;
+    
+    const resolveOnce = () => {
+      if (hasResolved) return;
+      hasResolved = true;
+      
       try {
-        // Vérifier si c'est une vraie erreur ou juste des warnings
-        const isRealError = error && (
-          !fs.existsSync(tempDir) || 
-          fs.readdirSync(tempDir).length === 0 ||
-          (stderr && stderr.includes('Error:') && !stderr.includes('[WARNING]'))
-        );
-        
-        if (isRealError) {
-          console.log(`❌ ${file} compilation failed: ${error.message}`);
-          if (stderr && !stderr.includes('[WARNING]')) {
-            console.log(`   Error: ${stderr.trim()}`);
-          }
-        } else if (stderr && stderr.includes('[WARNING]')) {
-          // Afficher les warnings mais ne pas les traiter comme des erreurs
-          console.log(`⚠️  ${file} compiled with warnings:`);
-          console.log(`   ${stderr.trim()}`);
-        }
-        
         // S'assurer que le dossier dist existe
         if (!fs.existsSync('dist')) {
           fs.mkdirSync('dist', { recursive: true });
@@ -80,11 +68,90 @@ function buildHtmlFile(file, config) {
           console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
         }
         
-      } catch (processError) {
-        console.log(`⚠️ Warning processing ${file}: ${processError.message}`);
+      } catch (error) {
+        console.log(`⚠️ Warning processing ${file}: ${error.message}`);
       } finally {
+        // Tuer le processus s'il est encore en cours
+        if (childProcess && !childProcess.killed) {
+          childProcess.kill('SIGTERM');
+        }
         cleanupTempDir(tempDir);
         resolve();
+      }
+    };
+    
+    // Surveiller la création des fichiers HTML et assets
+    const checkForCompletion = () => {
+      if (hasResolved) return false;
+      
+      const htmlFile = path.join(tempDir, `${fileName}.html`);
+      const assetsDir = path.join(tempDir, 'assets');
+      
+      // Vérifier si le fichier HTML existe
+      const htmlExists = fs.existsSync(htmlFile);
+      
+      // Pour les fichiers HTML, on attend aussi que les assets soient générés
+      // ou qu'au moins le fichier HTML soit présent
+      if (htmlExists) {
+        // Si le dossier assets existe, attendre qu'il contienne des fichiers
+        if (fs.existsSync(assetsDir)) {
+          try {
+            const assetFiles = fs.readdirSync(assetsDir);
+            // Attendre qu'il y ait au moins un fichier JS ou CSS
+            const hasAssets = assetFiles.some(file => 
+              file.endsWith('.js') || file.endsWith('.css')
+            );
+            
+            if (hasAssets) {
+              return true; // Compilation terminée
+            }
+          } catch (error) {
+            // Si on ne peut pas lire le dossier assets, continuer
+          }
+        } else {
+          // Pas de dossier assets attendu, le HTML suffit
+          return true;
+        }
+      }
+      
+      return false;
+    };
+    
+    const checkInterval = setInterval(() => {
+      if (checkForCompletion()) {
+        clearInterval(checkInterval);
+        // Attendre un peu pour s'assurer que tous les fichiers sont écrits
+        setTimeout(resolveOnce, 500);
+      }
+    }, 200); // Vérifier toutes les 200ms
+    
+    // Timeout de sécurité (plus long pour les HTML qui prennent plus de temps)
+    const timeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      if (!hasResolved) {
+        console.log(`⏰ Timeout for ${file} (fallback)`);
+        resolveOnce();
+      }
+    }, 20000); // 20 secondes pour les HTML
+    
+    // Lancer la compilation
+    childProcess = exec(command, { 
+      maxBuffer: 1024 * 1024 * 10
+    }, (error, stdout, stderr) => {
+      clearTimeout(timeout);
+      clearInterval(checkInterval);
+      
+      // Si le fichier n'a pas encore été traité, le faire maintenant
+      if (!hasResolved) {
+        if (stderr && stderr.includes('[WARNING]')) {
+          console.log(`⚠️ ${file} compiled with warnings`);
+        }
+        // Attendre un peu avant de traiter au cas où les fichiers seraient encore en cours d'écriture
+        setTimeout(() => {
+          if (!hasResolved) {
+            resolveOnce();
+          }
+        }, 300);
       }
     });
   });
