@@ -1,19 +1,16 @@
 const fs = require('fs');
 const path = require('path');
-const { buildImbaFile } = require('./imba');
-const { buildHtmlFile } = require('./html');
+const { buildFile } = require('./imba');
 const { combineAssets } = require('../utils/assets');
 
 /**
  * Compile un fichier en fonction de son extension
  */
-async function buildFile(file, config) {
+async function buildSingleFile(file, config) {
   const ext = path.extname(file);
 
-  if (ext === '.imba') {
-    await buildImbaFile(file, config);
-  } else if (ext === '.html') {
-    await buildHtmlFile(file, config);
+  if (ext === '.imba' || ext === '.html') {
+    await buildFile(file, config);
   } else {
     console.warn(`⚠️  Unsupported file type: ${file}`);
   }
@@ -35,12 +32,10 @@ async function buildAll(files, config) {
   });
 
   try {
-    // Attendre que toutes les builds soient vraiment terminées
-    await Promise.all(existingFiles.map(file => buildFile(file, config)));
+    await Promise.all(existingFiles.map(file => buildSingleFile(file, config)));
 
     console.log('\n🎉 All files compiled successfully!');
     
-    // Copier les assets après la compilation
     console.log('');
     combineAssets();
 
@@ -52,4 +47,4 @@ async function buildAll(files, config) {
   }
 }
 
-module.exports = { buildFile, buildAll };
+module.exports = { buildSingleFile, buildAll };

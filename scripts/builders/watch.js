@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { buildFile } = require('./build-all');
+const { buildSingleFile } = require('./build-all');
 const { generateManifest } = require('../manifest/generator');
 const { ImbaWatcher } = require('./imba-watch');
 const { combineAssets } = require('../utils/assets');
@@ -40,7 +40,7 @@ async function startWatchMode(files, config) {
       .filter(file => fs.existsSync(file))
       .map(async (file) => {
         console.log(`📦 Building ${file}...`);
-        await buildFile(file, config);
+        await buildSingleFile(file, config);
         return file;
       })
   );
@@ -72,7 +72,7 @@ async function startWatchMode(files, config) {
   async function rebuildFile(file, reason = 'File changed') {
     console.log(`\n🔄 ${reason}: ${file}`);
     try {
-      await buildFile(file, config);
+      await buildSingleFile(file, config);
       generateManifest(config.targetBrowser);
       console.log('✅ Rebuild completed\n');
     } catch (error) {

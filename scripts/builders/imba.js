@@ -4,17 +4,20 @@ const path = require('path');
 const { 
   generateTempDir, 
   findGeneratedFile, 
+  copyAssetsRecursively,
+  fixBackslashesInHtml,
   cleanupTempDir 
 } = require('../utils/fs');
 
 /**
- * Compile un fichier .imba (version asynchrone)
+ * Compile un fichier .imba ou .html
  */
-function buildImbaFile(file, config) {
+function buildFile(file, config) {
   return new Promise((resolve) => {
-    const fileName = path.basename(file, '.imba');
+    const ext = path.extname(file);
+    const fileName = path.basename(file, ext);
     const tempDir = generateTempDir();
-    const outputFile = path.join('dist', `${fileName}.js`);
+    const isHtml = ext === '.html';
     
     console.log(`📦 Building ${file}...`);
     
@@ -29,68 +32,105 @@ function buildImbaFile(file, config) {
     let childProcess = null;
     let capturedStdout = '';
     let capturedStderr = '';
+    let hasDisplayedError = false;
+    
+    const displayErrorOnce = () => {
+      if (hasDisplayedError || !capturedStderr) return;
+      hasDisplayedError = true;
+      
+      console.log('\n❌ STDERR from Imba compiler:');
+      console.log('─'.repeat(60));
+      console.log(capturedStderr);
+      console.log('─'.repeat(60));
+    };
     
     const resolveOnce = () => {
       if (hasResolved) return;
       hasResolved = true;
       
       try {
-        const generatedFile = findGeneratedFile(tempDir, fileName);
+        if (!fs.existsSync('dist')) {
+          fs.mkdirSync('dist', { recursive: true });
+        }
         
-        if (generatedFile) {
-          if (!fs.existsSync('dist')) {
-            fs.mkdirSync('dist', { recursive: true });
+        let filesFound = { html: false, js: false };
+        
+        if (isHtml) {
+          // Logique spécifique aux fichiers HTML
+          const outputHtmlFile = path.join('dist', `${fileName}.html`);
+          const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
+          
+          if (fs.existsSync(tempHtmlFile)) {
+            fs.copyFileSync(tempHtmlFile, outputHtmlFile);
+            fixBackslashesInHtml(outputHtmlFile);
+            console.log(`✅ ${file} → ${outputHtmlFile}`);
+            filesFound.html = true;
           }
           
-          fs.copyFileSync(generatedFile, outputFile);
-          console.log(`✅ ${file} → ${outputFile}`);
+          // Copier assets si existants
+          const assetsDir = path.join(tempDir, 'assets');
+          if (fs.existsSync(assetsDir)) {
+            const distAssetsDir = path.join('dist', 'assets');
+            copyAssetsRecursively(assetsDir, distAssetsDir);
+            const assetFiles = fs.readdirSync(assetsDir);
+            assetFiles.forEach(asset => {
+              console.log(`✅ Asset: ${asset} → dist/assets/${asset}`);
+            });
+          }
+          
+          // Copier fichier JS principal hors assets
+          const generatedJsFile = findGeneratedFile(tempDir, fileName);
+          if (generatedJsFile && !generatedJsFile.includes('assets')) {
+            const outputJsFile = path.join('dist', `${fileName}.js`);
+            fs.copyFileSync(generatedJsFile, outputJsFile);
+            console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
+            filesFound.js = true;
+          }
+          
+          // Gestion des avertissements pour HTML
+          if (!filesFound.html) {
+            console.log(`⚠️ No HTML output file found for ${file}`);
+          }
+          
+          if (!filesFound.html || !filesFound.js) {
+            displayErrorOnce();
+          }
+          
         } else {
-          console.log(`⚠️ No output file found for ${file}`);
+          // Logique spécifique aux fichiers .imba
+          const outputFile = path.join('dist', `${fileName}.js`);
+          const generatedFile = findGeneratedFile(tempDir, fileName);
           
-          // Afficher les erreurs capturées
-          if (capturedStderr) {
-            console.log('\n❌ STDERR from Imba compiler:');
-            console.log('─'.repeat(60));
-            console.log(capturedStderr);
-            console.log('─'.repeat(60));
-          }
-          
-          // if (capturedStdout) {
-          //   console.log('\n📝 STDOUT from Imba compiler:');
-          //   console.log('─'.repeat(60));
-          //   console.log(capturedStdout);
-          //   console.log('─'.repeat(60));
-          // }
-          
-          // Lister le contenu du tempDir pour déboguer
-          console.log(`\n📂 Contents of temp directory (${tempDir}):`);
-          try {
-            const files = fs.readdirSync(tempDir, { withFileTypes: true, recursive: true });
-            if (files.length === 0) {
-              console.log('  (empty directory)');
-            } else {
-              files.forEach(file => {
-                const fullPath = path.join(file.path || tempDir, file.name);
-                const relativePath = path.relative(tempDir, fullPath);
-                console.log(`  - ${relativePath}`);
-              });
+          if (generatedFile) {
+            fs.copyFileSync(generatedFile, outputFile);
+            console.log(`✅ ${file} → ${outputFile}`);
+            filesFound.js = true;
+          } else {
+            console.log(`⚠️ No output file found for ${file}`);
+            displayErrorOnce();
+            
+            // Debug pour fichiers .imba
+            console.log(`\n📂 Contents of temp directory (${tempDir}):`);
+            try {
+              const files = fs.readdirSync(tempDir, { withFileTypes: true, recursive: true });
+              if (files.length === 0) {
+                console.log('  (empty directory)');
+              } else {
+                files.forEach(file => {
+                  const fullPath = path.join(file.path || tempDir, file.name);
+                  const relativePath = path.relative(tempDir, fullPath);
+                  console.log(`  - ${relativePath}`);
+                });
+              }
+            } catch (e) {
+              console.log(`  Error reading directory: ${e.message}`);
             }
-          } catch (e) {
-            console.log(`  Error reading directory: ${e.message}`);
           }
         }
+        
       } catch (error) {
         console.log(`⚠️ Warning processing ${file}: ${error.message}`);
-        
-        // Afficher les captures si disponibles
-        if (capturedStderr) {
-          console.log('\n❌ STDERR:');
-          console.log(capturedStderr);
-        }
-        // if (capturedStdout) {
-        //   console.log('\n📝 STDOUT:');
-        //   console.log(capturedStdout);
-        // }
+        displayErrorOnce();
       } finally {
         // Tuer le processus s'il est encore en cours
         if (childProcess && !childProcess.killed) {
@@ -101,69 +141,95 @@ function buildImbaFile(file, config) {
       }
     };
     
-    // Surveiller la création du fichier de sortie
-    const expectedExtensions = ['.mjs', '.js'];
-    const checkInterval = setInterval(() => {
-      if (hasResolved) {
-        clearInterval(checkInterval);
-        return;
-      }
+    // Fonction de vérification adaptée au type de fichier
+    const checkForCompletion = () => {
+      if (hasResolved) return false;
       
-      // Vérifier si un fichier a été généré
-      for (const ext of expectedExtensions) {
-        const expectedFile = path.join(tempDir, `${fileName}${ext}`);
-        if (fs.existsSync(expectedFile)) {
-          clearInterval(checkInterval);
-          // Attendre un peu pour s'assurer que l'écriture est terminée
-          setTimeout(resolveOnce, 200);
-          return;
+      if (isHtml) {
+        const htmlFile = path.join(tempDir, `${fileName}.html`);
+        const assetsDir = path.join(tempDir, 'assets');
+        
+        const htmlExists = fs.existsSync(htmlFile);
+        if (htmlExists) {
+          if (fs.existsSync(assetsDir)) {
+            try {
+              const assetFiles = fs.readdirSync(assetsDir);
+              const hasAssets = assetFiles.some(file =>
+                file.endsWith('.js') || file.endsWith('.css')
+              );
+              if (hasAssets) {
+                return true;
+              }
+            } catch (e) {
+              // Ignore error reading assets
+            }
+          } else {
+            return true;
+          }
+        }
+      } else {
+        // Pour les fichiers .imba
+        const expectedExtensions = ['.mjs', '.js'];
+        for (const ext of expectedExtensions) {
+          const expectedFile = path.join(tempDir, `${fileName}${ext}`);
+          if (fs.existsSync(expectedFile)) {
+            return true;
+          }
         }
       }
-    }, 100); // Vérifier toutes les 100ms
+      return false;
+    };
     
-    // Timeout de sécurité
+    // Surveillance adaptée
+    const checkInterval = setInterval(() => {
+      if (checkForCompletion()) {
+        clearInterval(checkInterval);
+        setTimeout(resolveOnce, isHtml ? 500 : 200);
+      }
+    }, isHtml ? 200 : 100);
+    
+    // Timeout adapté
     const timeout = setTimeout(() => {
       clearInterval(checkInterval);
       if (!hasResolved) {
         console.log(`⏰ Timeout for ${file} (fallback)`);
         resolveOnce();
       }
-    }, 15000);
+    }, isHtml ? 20000 : 15000);
     
-    // Lancer la compilation
-    childProcess = exec(command, { 
+    // Lancement de la compilation
+    childProcess = exec(command, {
       maxBuffer: 1024 * 1024 * 10
     }, (error, stdout, stderr) => {
       clearTimeout(timeout);
       clearInterval(checkInterval);
-      
-      // Capturer les sorties
       capturedStdout = stdout || '';
       capturedStderr = stderr || '';
       
-      // Afficher les erreurs immédiatement si présentes
       if (error) {
         console.log(`\n❌ Compilation error for ${file}:`);
         console.log(`   Exit code: ${error.code}`);
         console.log(`   Signal: ${error.signal}`);
       }
       
-      // Si le fichier n'a pas encore été traité, le faire maintenant
       if (!hasResolved) {
         if (stderr && stderr.includes('[WARNING]')) {
           console.log(`⚠️ ${file} compiled with warnings`);
         }
-        resolveOnce();
+        setTimeout(() => {
+          if (!hasResolved) {
+            resolveOnce();
+          }
+        }, 300);
       }
     });
     
-    // Capturer stdout et stderr en temps réel
+    // Capture des sorties
     if (childProcess.stdout) {
       childProcess.stdout.on('data', (data) => {
         capturedStdout += data.toString();
       });
     }
-    
     if (childProcess.stderr) {
       childProcess.stderr.on('data', (data) => {
         capturedStderr += data.toString();
@@ -172,4 +238,13 @@ function buildImbaFile(file, config) {
   });
 }
 
-module.exports = { buildImbaFile };
+// Fonctions de compatibilité pour maintenir l'API existante
+function buildImbaFile(file, config) {
+  return buildFile(file, config);
+}
+
+function buildHtmlFile(file, config) {
+  return buildFile(file, config);
+}
+
+module.exports = { buildFile, buildImbaFile, buildHtmlFile };
