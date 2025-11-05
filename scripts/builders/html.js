@@ -28,6 +28,17 @@ function buildHtmlFile(file, config) {
     let childProcess = null;
     let capturedStdout = '';
     let capturedStderr = '';
+    let hasDisplayedError = false; // Flag pour éviter la duplication
+
+    const displayErrorOnce = () => {
+      if (hasDisplayedError || !capturedStderr) return;
+      hasDisplayedError = true;
+      
+      console.log('\n❌ STDERR from Imba compiler:');
+      console.log('─'.repeat(60));
+      console.log(capturedStderr);
+      console.log('─'.repeat(60));
+    };
 
     const resolveOnce = () => {
       if (hasResolved) return;
@@ -38,42 +49,16 @@ function buildHtmlFile(file, config) {
           fs.mkdirSync('dist', { recursive: true });
         }
 
+        let htmlFound = false;
+        let jsFound = false;
+
         // Copier fichier HTML
         const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
         if (fs.existsSync(tempHtmlFile)) {
           fs.copyFileSync(tempHtmlFile, outputHtmlFile);
           fixBackslashesInHtml(outputHtmlFile);
           console.log(`✅ ${file} → ${outputHtmlFile}`);
-        } else {
-          console.log(`⚠️ No HTML output file found for ${file}`);
-
-          if (capturedStderr) {
-            console.log('\n❌ STDERR from Imba compiler:');
-            console.log('─'.repeat(60));
-            console.log(capturedStderr);
-            console.log('─'.repeat(60));
-          }
-          // if (capturedStdout) {
-          //   console.log('\n📝 STDOUT from Imba compiler:');
-          //   console.log('─'.repeat(60));
-          //   console.log(capturedStdout);
-          //   console.log('─'.repeat(60));
-          // }
-
-          // Afficher contenu dossier temporaire
-          console.log(`\n📂 Contents of temp directory (${tempDir}):`);
-          try {
-            const files = fs.readdirSync(tempDir, { withFileTypes: true });
-            if (files.length === 0) {
-              console.log('  (empty directory)');
-            } else {
-              files.forEach(file => {
-                console.log(`  - ${file.name}`);
-              });
-            }
-          } catch (e) {
-            console.log(`  Error reading directory: ${e.message}`);
-          }
+          htmlFound = true;
         }
 
         // Copier assets si existants
@@ -93,34 +78,41 @@ function buildHtmlFile(file, config) {
           const outputJsFile = path.join('dist', `${fileName}.js`);
           fs.copyFileSync(generatedJsFile, outputJsFile);
           console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
-        } else {
-          console.log(`⚠️ No JS output file found for ${file}`);
+          jsFound = true;
+        }
 
-          if (capturedStderr) {
-            console.log('\n❌ STDERR from Imba compiler:');
-            console.log('─'.repeat(60));
-            console.log(capturedStderr);
-            console.log('─'.repeat(60));
-          }
-          // if (capturedStdout) {
-          //   console.log('\n📝 STDOUT from Imba compiler:');
-          //   console.log('─'.repeat(60));
-          //   console.log(capturedStdout);
-          //   console.log('─'.repeat(60));
+        // Afficher les avertissements et erreurs une seule fois
+        if (!htmlFound) {
+          console.log(`⚠️ No HTML output file found for ${file}`);
+        }
+        
+        // if (!jsFound) {
+        //   console.log(`ℹ️  No JS output file found for ${file}`);
+        // }
+
+        // Afficher l'erreur une seule fois si aucun fichier n'a été trouvé
+        if (!htmlFound || !jsFound) {
+          displayErrorOnce();
+          
+          // // Afficher contenu dossier temporaire pour debug
+          // console.log(`\n📂 Contents of temp directory (${tempDir}):`);
+          // try {
+          //   const files = fs.readdirSync(tempDir, { withFileTypes: true });
+          //   if (files.length === 0) {
+          //     console.log('  (empty directory)');
+          //   } else {
+          //     files.forEach(file => {
+          //       console.log(`  - ${file.name}`);
+          //     });
+          //   }
+          // } catch (e) {
+          //   console.log(`  Error reading directory: ${e.message}`);
           // }
         }
 
       } catch (error) {
         console.log(`⚠️ Warning processing ${file}: ${error.message}`);
-
-        if (capturedStderr) {
-          console.log('\n❌ STDERR:');
-          console.log(capturedStderr);
-        }
-        if (capturedStdout) {
-          console.log('\n📝 STDOUT:');
-          console.log(capturedStdout);
-        }
+        displayErrorOnce();
       } finally {
         if (childProcess && !childProcess.killed) {
           childProcess.kill('SIGTERM');
@@ -130,6 +122,7 @@ function buildHtmlFile(file, config) {
       }
     };
 
+    // ... reste du code inchangé
     const checkForCompletion = () => {
       if (hasResolved) return false;
 
@@ -170,7 +163,7 @@ function buildHtmlFile(file, config) {
         console.log(`⏰ Timeout for ${file} (fallback)`);
         resolveOnce();
       }
-    }, 20000); // 20s timeout
+    }, 20000);
 
     childProcess = exec(command, {
       maxBuffer: 1024 * 1024 * 10
