@@ -1,3 +1,4 @@
+//watch.js
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -18,6 +19,8 @@ class UnifiedWatcher {
     this.tempDirs = new Map();
     this.initialBuildComplete = new Map();
     this.fileWatchers = new Set();
+    // Buffer pour les messages stderr
+    this.stderrBuffers = new Map();
   }
 
   /**
@@ -29,6 +32,7 @@ class UnifiedWatcher {
       const tempDir = generateTempDir();
       this.tempDirs.set(file, tempDir);
       this.initialBuildComplete.set(file, false);
+      this.stderrBuffers.set(file, ''); // Initialiser le buffer
       
       let buildOptions = '--esm -M --base . --watch';
       if (config.isDev) {
@@ -62,29 +66,25 @@ class UnifiedWatcher {
       });
 
       watcher.stderr.on('data', (data) => {
-        const error = data.toString();
+        const chunk = data.toString();
         
-        // Accumuler les erreurs pour un affichage groupé
-        if (!this.stderrBuffer) this.stderrBuffer = new Map();
-        if (!this.stderrBuffer.has(file)) this.stderrBuffer.set(file, '');
+        // Ajouter le chunk au buffer
+        let buffer = this.stderrBuffers.get(file) + chunk;
+        this.stderrBuffers.set(file, buffer);
         
-        this.stderrBuffer.set(file, this.stderrBuffer.get(file) + error);
-        
-        // Afficher immédiatement si ce n'est pas juste un warning
-        if (error.trim() && !error.includes('[WARNING]')) {
-          console.error(`❌ Imba watcher error for ${file}:`);
-          console.error('─'.repeat(50));
-          console.error(error.trim());
-          console.error('─'.repeat(50));
-        }
+        // Traiter les messages complets (séparés par des lignes vides ou des fins de message)
+        this.processStderrBuffer(file, buffer);
       });
 
       watcher.on('close', (code) => {
         console.log(`🛑 Imba watcher for ${file} stopped (code: ${code})`);
+        // Nettoyer le buffer
+        this.stderrBuffers.delete(file);
       });
 
       watcher.on('error', (error) => {
         console.error(`❌ Failed to start watcher for ${file}:`, error);
+        this.stderrBuffers.delete(file);
         resolve();
       });
 
@@ -98,6 +98,68 @@ class UnifiedWatcher {
         }
       }, 10000);
     });
+  }
+
+  /**
+   * Traite le buffer stderr avec un délai pour s'assurer d'avoir le message complet
+   */
+  processStderrBuffer(file, buffer) {
+    // Annuler le timeout précédent s'il existe
+    if (this.stderrTimeouts && this.stderrTimeouts.has(file)) {
+      clearTimeout(this.stderrTimeouts.get(file));
+    }
+    
+    // Initialiser la Map des timeouts si nécessaire
+    if (!this.stderrTimeouts) {
+      this.stderrTimeouts = new Map();
+    }
+    
+    // Attendre 500ms avant de traiter le message pour s'assurer qu'il est complet
+    const timeout = setTimeout(() => {
+      const currentBuffer = this.stderrBuffers.get(file) || '';
+      if (currentBuffer.trim()) {
+        this.displayStderrMessage(file, currentBuffer.trim());
+        this.stderrBuffers.set(file, '');
+      }
+      this.stderrTimeouts.delete(file);
+    }, 500);
+    
+    this.stderrTimeouts.set(file, timeout);
+  }
+
+  /**
+   * Affiche un message stderr formaté
+   */
+  displayStderrMessage(file, message) {
+    if (!message || message.length < 3) return;
+    
+    // Nettoyer le message des caractères parasites
+    const cleanMessage = message
+      .replace(/^\[+|\]+$/g, '') // Supprimer les crochets en début/fin
+      .replace(/^WARNING\]\s*\[plugin imba\]/, '[WARNING] [plugin imba]') // Corriger le format
+      .replace(/^ERROR\]\s*\[plugin imba\]/, '[ERROR] [plugin imba]') // Corriger le format
+      .trim();
+    
+    if (!cleanMessage) return;
+    
+    // Catégoriser et afficher les messages
+    if (cleanMessage.includes('[ERROR]') || cleanMessage.toLowerCase().includes('error')) {
+      console.error(`\n❌ Imba compiler error for ${file}:`);
+      console.error('─'.repeat(60));
+      console.error(cleanMessage);
+      console.error('─'.repeat(60));
+    } else if (cleanMessage.includes('[WARNING]') || cleanMessage.includes('tree-shaking') || cleanMessage.includes('Referencing imba directly')) {
+      console.warn(`\n⚠️  Imba compiler warning for ${file}:`);
+      console.warn('─'.repeat(60));
+      console.warn(cleanMessage);
+      console.warn('');
+      console.warn('─'.repeat(60));
+    } else if (cleanMessage.length > 10) { // Ignorer les fragments très courts
+      console.info(`\n💬 Imba compiler info for ${file}:`);
+      console.info('─'.repeat(60));
+      console.info(cleanMessage);
+      console.info('─'.repeat(60));
+    }
   }
 
   /**
@@ -246,12 +308,11 @@ class UnifiedWatcher {
     this.tempDirs.clear();
     this.initialBuildComplete.clear();
     this.fileWatchers.clear();
+    this.stderrBuffers.clear();
   }
 }
 
-/**
- * Démarre le mode watch hybride optimisé
- */
+// Le reste du code reste identique...
 async function startWatchMode(files, config) {
   console.log(`👀 Starting optimized watch mode for ${config.targetBrowser}...\n`);
   
