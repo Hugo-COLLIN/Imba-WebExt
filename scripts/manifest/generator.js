@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { readJsonFile, writeJsonFile } = require('./json-utils');
+const { readJsonFile, writeJsonFile } = require('../utils/json');
 const { convertSourcePathToOutput } = require('./path-converter');
 const { adaptManifestForFirefox } = require('./firefox-adapter');
 
