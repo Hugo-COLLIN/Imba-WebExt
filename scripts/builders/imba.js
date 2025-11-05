@@ -19,7 +19,7 @@ function buildFile(file, config) {
     
     console.log(`📦 Building ${file}...`);
     
-    let buildOptions = '--esm -M --base .';
+    let buildOptions = '--web -M --base .';
     if (config.isDev) {
       buildOptions += ' -d';
     }

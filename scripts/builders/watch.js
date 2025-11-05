@@ -31,7 +31,7 @@ class UnifiedWatcher {
       this.initialBuildComplete.set(file, false);
       this.stderrBuffers.set(file, ''); // Initialiser le buffer
       
-      let buildOptions = '--esm -M --base . --watch';
+      let buildOptions = '--web -M --base . --watch';
       if (config.isDev) {
         buildOptions += ' -d';
       }
