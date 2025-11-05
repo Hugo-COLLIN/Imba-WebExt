@@ -63,8 +63,19 @@ class UnifiedWatcher {
 
       watcher.stderr.on('data', (data) => {
         const error = data.toString();
-        if (!error.includes('[WARNING]')) {
-          console.error(`❌ Imba watcher error for ${file}:`, error);
+        
+        // Accumuler les erreurs pour un affichage groupé
+        if (!this.stderrBuffer) this.stderrBuffer = new Map();
+        if (!this.stderrBuffer.has(file)) this.stderrBuffer.set(file, '');
+        
+        this.stderrBuffer.set(file, this.stderrBuffer.get(file) + error);
+        
+        // Afficher immédiatement si ce n'est pas juste un warning
+        if (error.trim() && !error.includes('[WARNING]')) {
+          console.error(`❌ Imba watcher error for ${file}:`);
+          console.error('─'.repeat(50));
+          console.error(error.trim());
+          console.error('─'.repeat(50));
         }
       });
 
