@@ -2,12 +2,10 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { 
-  generateTempDir, 
-  findGeneratedFile, 
-  copyAssetsRecursively,
-  fixBackslashesInHtml,
+  generateTempDir,
   cleanupTempDir 
 } = require('../utils/fs');
+const { FileCopier } = require('./file-copier');
 
 /**
  * Compile un fichier .imba ou .html
@@ -44,87 +42,36 @@ function buildFile(file, config) {
       console.log('─'.repeat(60));
     };
     
-    const resolveOnce = () => {
+    const resolveOnce = async () => {
       if (hasResolved) return;
       hasResolved = true;
       
       try {
-        if (!fs.existsSync('dist')) {
-          fs.mkdirSync('dist', { recursive: true });
-        }
+        // Utiliser FileCopier au lieu de la logique dupliquée
+        const filesFound = await FileCopier.copyGeneratedFiles(file, tempDir, fileName);
         
-        let filesFound = { html: false, js: false };
-        
-        if (isHtml) {
-          // Logique spécifique aux fichiers HTML
-          const outputHtmlFile = path.join('dist', `${fileName}.html`);
-          const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
+        // Gestion des avertissements
+        if (isHtml && (!filesFound.html || !filesFound.js)) {
+          displayErrorOnce();
+        } else if (!isHtml && !filesFound.js) {
+          console.log(`⚠️ No output file found for ${file}`);
+          displayErrorOnce();
           
-          if (fs.existsSync(tempHtmlFile)) {
-            fs.copyFileSync(tempHtmlFile, outputHtmlFile);
-            fixBackslashesInHtml(outputHtmlFile);
-            console.log(`✅ ${file} → ${outputHtmlFile}`);
-            filesFound.html = true;
-          }
-          
-          // Copier assets si existants
-          const assetsDir = path.join(tempDir, 'assets');
-          if (fs.existsSync(assetsDir)) {
-            const distAssetsDir = path.join('dist', 'assets');
-            copyAssetsRecursively(assetsDir, distAssetsDir);
-            const assetFiles = fs.readdirSync(assetsDir);
-            assetFiles.forEach(asset => {
-              console.log(`✅ Asset: ${asset} → dist/assets/${asset}`);
-            });
-          }
-          
-          // Copier fichier JS principal hors assets
-          const generatedJsFile = findGeneratedFile(tempDir, fileName);
-          if (generatedJsFile && !generatedJsFile.includes('assets')) {
-            const outputJsFile = path.join('dist', `${fileName}.js`);
-            fs.copyFileSync(generatedJsFile, outputJsFile);
-            console.log(`✅ JS: ${fileName}.js → ${outputJsFile}`);
-            filesFound.js = true;
-          }
-          
-          // Gestion des avertissements pour HTML
-          if (!filesFound.html) {
-            console.log(`⚠️ No HTML output file found for ${file}`);
-          }
-          
-          if (!filesFound.html || !filesFound.js) {
-            displayErrorOnce();
-          }
-          
-        } else {
-          // Logique spécifique aux fichiers .imba
-          const outputFile = path.join('dist', `${fileName}.js`);
-          const generatedFile = findGeneratedFile(tempDir, fileName);
-          
-          if (generatedFile) {
-            fs.copyFileSync(generatedFile, outputFile);
-            console.log(`✅ ${file} → ${outputFile}`);
-            filesFound.js = true;
-          } else {
-            console.log(`⚠️ No output file found for ${file}`);
-            displayErrorOnce();
-            
-            // Debug pour fichiers .imba
-            console.log(`\n📂 Contents of temp directory (${tempDir}):`);
-            try {
-              const files = fs.readdirSync(tempDir, { withFileTypes: true, recursive: true });
-              if (files.length === 0) {
-                console.log('  (empty directory)');
-              } else {
-                files.forEach(file => {
-                  const fullPath = path.join(file.path || tempDir, file.name);
-                  const relativePath = path.relative(tempDir, fullPath);
-                  console.log(`  - ${relativePath}`);
-                });
-              }
-            } catch (e) {
-              console.log(`  Error reading directory: ${e.message}`);
+          // Debug pour fichiers .imba
+          console.log(`\n📂 Contents of temp directory (${tempDir}):`);
+          try {
+            const files = fs.readdirSync(tempDir, { withFileTypes: true, recursive: true });
+            if (files.length === 0) {
+              console.log('  (empty directory)');
+            } else {
+              files.forEach(file => {
+                const fullPath = path.join(file.path || tempDir, file.name);
+                const relativePath = path.relative(tempDir, fullPath);
+                console.log(`  - ${relativePath}`);
+              });
             }
+          } catch (e) {
+            console.log(`  Error reading directory: ${e.message}`);
           }
         }
         
@@ -132,7 +79,6 @@ function buildFile(file, config) {
         console.log(`⚠️ Warning processing ${file}: ${error.message}`);
         displayErrorOnce();
       } finally {
-        // Tuer le processus s'il est encore en cours
         if (childProcess && !childProcess.killed) {
           childProcess.kill('SIGTERM');
         }
@@ -238,13 +184,4 @@ function buildFile(file, config) {
   });
 }
 
-// Fonctions de compatibilité pour maintenir l'API existante
-function buildImbaFile(file, config) {
-  return buildFile(file, config);
-}
-
-function buildHtmlFile(file, config) {
-  return buildFile(file, config);
-}
-
-module.exports = { buildFile, buildImbaFile, buildHtmlFile };
+module.exports = { buildFile };

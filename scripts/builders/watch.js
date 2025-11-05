@@ -1,4 +1,3 @@
-//watch.js
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -6,12 +5,10 @@ const { buildSingleFile } = require('./build-all');
 const { generateManifest } = require('../manifest/generator');
 const { combineAssets } = require('../utils/assets');
 const { 
-  generateTempDir, 
-  findGeneratedFile, 
-  cleanupTempDir,
-  copyAssetsRecursively,
-  fixBackslashesInHtml
+  generateTempDir,
+  cleanupTempDir
 } = require('../utils/fs');
+const { FileCopier } = require('./file-copier');
 
 class UnifiedWatcher {
   constructor() {
@@ -168,66 +165,19 @@ class UnifiedWatcher {
   async handleImbaFileChange(file, config) {
     const fileName = path.basename(file, path.extname(file));
     const tempDir = this.tempDirs.get(file);
-    const ext = path.extname(file);
     
     try {
-      if (ext === '.imba') {
-        await this.copyImbaOutput(file, fileName, tempDir);
-      } else if (ext === '.html') {
-        await this.copyHtmlOutput(file, fileName, tempDir);
-      }
+      // Utiliser FileCopier au lieu des méthodes séparées
+      await FileCopier.copyGeneratedFiles(file, tempDir, fileName);
       
       if (this.initialBuildComplete.get(file)) {
-        console.log(`✅ ${file} recompiled and copied`);
+        // Attendre que les stderr s'affichent avant le message de succès
+        setTimeout(() => {
+          console.log(`✅ ${file} recompiled and copied`);
+        }, 600);
       }
     } catch (error) {
       console.error(`❌ Error handling change for ${file}:`, error.message);
-    }
-  }
-
-  /**
-   * Copie la sortie d'un fichier Imba
-   */
-  async copyImbaOutput(file, fileName, tempDir) {
-    const outputFile = path.join('dist', `${fileName}.js`);
-    const generatedFile = findGeneratedFile(tempDir, fileName);
-    
-    if (generatedFile && fs.existsSync(generatedFile)) {
-      if (!fs.existsSync('dist')) {
-        fs.mkdirSync('dist', { recursive: true });
-      }
-      fs.copyFileSync(generatedFile, outputFile);
-    }
-  }
-
-  /**
-   * Copie la sortie d'un fichier HTML
-   */
-  async copyHtmlOutput(file, fileName, tempDir) {
-    // Copier le fichier HTML
-    const tempHtmlFile = path.join(tempDir, `${fileName}.html`);
-    const outputHtmlFile = path.join('dist', `${fileName}.html`);
-    
-    if (fs.existsSync(tempHtmlFile)) {
-      if (!fs.existsSync('dist')) {
-        fs.mkdirSync('dist', { recursive: true });
-      }
-      fs.copyFileSync(tempHtmlFile, outputHtmlFile);
-      fixBackslashesInHtml(outputHtmlFile);
-    }
-    
-    // Copier les assets
-    const assetsDir = path.join(tempDir, 'assets');
-    if (fs.existsSync(assetsDir)) {
-      const distAssetsDir = path.join('dist', 'assets');
-      copyAssetsRecursively(assetsDir, distAssetsDir);
-    }
-    
-    // Copier le JS principal
-    const generatedJsFile = findGeneratedFile(tempDir, fileName);
-    if (generatedJsFile && !generatedJsFile.includes('assets')) {
-      const outputJsFile = path.join('dist', `${fileName}.js`);
-      fs.copyFileSync(generatedJsFile, outputJsFile);
     }
   }
 
