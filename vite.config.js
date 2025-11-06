@@ -162,7 +162,7 @@ export default defineConfig(({ command, mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      sourcemap: isDev ? 'inline' : false,
+      sourcemap: false,
       minify: !isDev && browser !== "firefox",
       
       rollupOptions: {
