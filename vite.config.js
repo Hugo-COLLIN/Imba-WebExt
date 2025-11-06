@@ -13,6 +13,23 @@ async function generateManifestWrapper(browser) {
   generateManifest(browser)
 }
 
+// Fonction pour copier README et LICENSE
+function copyRootFiles() {
+  const rootFiles = ['README.md', 'README', 'LICENSE', 'LICENSE.md', 'LICENSE.txt']
+  const projectRoot = resolve(__dirname)
+  const distPath = resolve(__dirname, 'dist')
+  
+  rootFiles.forEach(fileName => {
+    const sourcePath = resolve(projectRoot, fileName)
+    const destPath = resolve(distPath, fileName)
+    
+    if (fs.existsSync(sourcePath)) {
+      fs.copyFileSync(sourcePath, destPath)
+      console.log(`✅ ${fileName} copied to dist/`)
+    }
+  })
+}
+
 // Plugin custom pour gérer le manifest et les assets
 function webExtensionPlugin(browser, buildType) {
   return {
@@ -31,6 +48,9 @@ function webExtensionPlugin(browser, buildType) {
           copyRecursive(assetsSource, assetsDest)
           console.log('✅ Assets copied')
         }
+        
+        // Copier README et LICENSE
+        copyRootFiles()
         
         // Réorganiser la structure de sortie
         reorganizeDistFolder()
@@ -57,6 +77,9 @@ function webExtensionPlugin(browser, buildType) {
         if (fs.existsSync(assetsSource)) {
           copyRecursive(assetsSource, assetsDest)
         }
+        
+        // Copier README et LICENSE aussi au démarrage
+        copyRootFiles()
       }
     }
   }
