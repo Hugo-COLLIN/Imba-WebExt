@@ -1,8 +1,10 @@
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
 import { join, dirname, relative } from 'path';
+import { spawn } from 'child_process';
 
 const testDir = 'test';
 const outDir = 'test.local';
+const watchMode = process.argv.includes('--watch');
 
 // Trouve tous les fichiers .imba
 function findImbaFiles(dir, base = dir) {
@@ -92,12 +94,12 @@ function transpileImba(inputPath, outputPath) {
 }
 
 // Compile tous les fichiers
-try {
+function buildAll() {
   const imbaFiles = findImbaFiles(testDir);
   
   if (imbaFiles.length === 0) {
     console.log('No test files found matching *.test.imba');
-    process.exit(0);
+    return false;
   }
   
   console.log(`Found ${imbaFiles.length} test file(s)\n`);
@@ -111,12 +113,90 @@ try {
     } catch (error) {
       console.error(`Failed to transpile ${file}:`, error.message);
       console.error(error.stack);
-      process.exit(1);
+      return false;
     }
   }
   
   console.log('\n✓ All tests transpiled successfully');
-} catch (error) {
-  console.error('Build failed:', error);
-  process.exit(1);
+  return true;
+}
+
+// Mode watch
+if (watchMode) {
+  let isBuilding = false;
+  let buildQueued = false;
+  let debounceTimer = null;
+  
+  console.log('👀 Watching test files for changes...\n');
+  
+  // Fonction pour builder et lancer les tests
+  function buildAndTest() {
+    if (isBuilding) {
+      buildQueued = true;
+      return;
+    }
+    
+    isBuilding = true;
+    console.log('🔄 Rebuilding tests...');
+    
+    // Build
+    const success = buildAll();
+    
+    if (success) {
+      console.log('✅ Build successful, running tests...\n');
+      
+      // Run tests
+      const test = spawn('bun', ['test', 'test.local'], {
+        stdio: 'inherit',
+        shell: true
+      });
+      
+      test.on('close', () => {
+        console.log('\n👀 Watching for changes...\n');
+        isBuilding = false;
+        
+        if (buildQueued) {
+          buildQueued = false;
+          buildAndTest();
+        }
+      });
+    } else {
+      console.error('❌ Build failed\n');
+      console.log('👀 Watching for changes...\n');
+      isBuilding = false;
+      
+      if (buildQueued) {
+        buildQueued = false;
+        buildAndTest();
+      }
+    }
+  }
+  
+  // Lance une première fois
+  buildAndTest();
+  
+  // Watch le dossier test/ avec debouncing
+  watch(testDir, { recursive: true }, (eventType, filename) => {
+    if (filename && filename.endsWith('.imba')) {
+      clearTimeout(debounceTimer);
+      
+      debounceTimer = setTimeout(() => {
+        console.log(`📝 Changed: ${filename}`);
+        buildAndTest();
+      }, 100);
+    }
+  });
+  
+  // Empêche le script de se terminer
+  process.stdin.resume();
+  
+} else {
+  // Mode build simple
+  try {
+    const success = buildAll();
+    process.exit(success ? 0 : 1);
+  } catch (error) {
+    console.error('Build failed:', error);
+    process.exit(1);
+  }
 }

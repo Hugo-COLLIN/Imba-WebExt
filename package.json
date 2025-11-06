@@ -13,7 +13,7 @@
     "zip:chrome": "BROWSER=chrome bun scripts/bundle/build.js --mode=production && bun scripts/zip.js --browser=chrome",
     "zip:firefox": "BROWSER=firefox bun scripts/bundle/build.js --mode=production && bun scripts/zip.js --browser=firefox",
     "test": "bun run scripts/tests/build.js && bun test test.local",
-    "test:watch": "bun run scripts/tests/watch.js && bun test test.local"
+    "test:watch": "bun run scripts/tests/build.js --watch && bun test test.local"
   },
   "dependencies": {
     "turndown": "^7.1.2",
