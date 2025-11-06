@@ -9,7 +9,6 @@ const __dirname = dirname(__filename)
 
 // Import du générateur de manifest existant (en CommonJS)
 async function generateManifestWrapper(browser) {
-  // Utiliser import dynamique pour charger le module CommonJS
   const { generateManifest } = await import('./scripts/manifest/generator.js')
   generateManifest(browser)
 }
@@ -21,7 +20,6 @@ function webExtensionPlugin(browser) {
     
     // Générer le manifest après le build
     async writeBundle() {
-      // Utiliser le générateur existant
       await generateManifestWrapper(browser)
       
       // Copier les assets
@@ -69,40 +67,50 @@ function webExtensionPlugin(browser) {
   }
 }
 
-// Fonction pour corriger les chemins dans les fichiers HTML
+// Fonction améliorée pour corriger les chemins dans les fichiers HTML
 function fixHtmlAssetPaths() {
   const distPath = resolve(__dirname, 'dist')
   
-  // Corriger popup.html
-  const popupHtmlPath = resolve(distPath, 'popup.html')
-  if (fs.existsSync(popupHtmlPath)) {
-    let content = fs.readFileSync(popupHtmlPath, 'utf8')
-    
-    // Remplacer les chemins absolus par des chemins relatifs vers assets/
-    content = content.replace(/src="\/popup\.js"/g, 'src="assets/popup.js"')
-    content = content.replace(/href="\/popup\.css"/g, 'href="assets/popup.css"')
-    content = content.replace(/href="\/chunks\//g, 'href="chunks/')
-    
-    fs.writeFileSync(popupHtmlPath, content, 'utf8')
-  }
+  // Liste des fichiers HTML à traiter
+  const htmlFiles = ['popup.html', 'options.html']
   
-  // Corriger options.html
-  const optionsHtmlPath = resolve(distPath, 'options.html')
-  if (fs.existsSync(optionsHtmlPath)) {
-    let content = fs.readFileSync(optionsHtmlPath, 'utf8')
+  htmlFiles.forEach(htmlFile => {
+    const htmlPath = resolve(distPath, htmlFile)
     
-    // Remplacer les chemins absolus par des chemins relatifs vers assets/
-    content = content.replace(/src="\/options\.js"/g, 'src="assets/options.js"')
-    content = content.replace(/href="\/options\.css"/g, 'href="assets/options.css"')
-    content = content.replace(/href="\/chunks\//g, 'href="chunks/')
-    
-    fs.writeFileSync(optionsHtmlPath, content, 'utf8')
-  }
-  
-  console.log('✅ HTML asset paths fixed')
+    if (fs.existsSync(htmlPath)) {
+      let content = fs.readFileSync(htmlPath, 'utf8')
+      let modified = false
+      
+      // Regex pour trouver tous les attributs src et href
+      const assetRegex = /(src|href)="([^"]+\.(js|css|png|jpg|jpeg|gif|svg|ico))"/g
+      
+      content = content.replace(assetRegex, (match, attr, path, ext) => {
+        // Si le chemin ne commence pas déjà par "assets/"
+        if (!path.startsWith('assets/')) {
+          // Si c'est un chunk
+          if (path.startsWith('chunks/')) {
+            const newPath = `assets/${path}`
+            modified = true
+            return `${attr}="${newPath}"`
+          }
+          // Si c'est un fichier principal (popup.js, options.js, etc.)
+          else if (path.match(/^[^\/]+\.(js|css)$/)) {
+            const newPath = `assets/${path}`
+            modified = true
+            return `${attr}="${newPath}"`
+          }
+        }
+        return match
+      })
+      
+      if (modified) {
+        fs.writeFileSync(htmlPath, content, 'utf8')
+        console.log(`✅ ${htmlFile} paths fixed`)
+      }
+    }
+  })
 }
 
-// Fonction pour réorganiser le dossier dist
 function reorganizeDistFolder() {
   const distPath = resolve(__dirname, 'dist')
   
@@ -124,17 +132,6 @@ function reorganizeDistFolder() {
   if (fs.existsSync(srcDir)) {
     fs.rmSync(srcDir, { recursive: true, force: true })
   }
-  
-  // 3. Déplacer CSS et JS vers assets/
-  const assetsDir = resolve(distPath, 'assets')
-  if (!fs.existsSync(assetsDir)) {
-    fs.mkdirSync(assetsDir, { recursive: true })
-  }
-  
-  moveFileToAssets(distPath, 'popup.css')
-  moveFileToAssets(distPath, 'popup.js')
-  moveFileToAssets(distPath, 'options.css')
-  moveFileToAssets(distPath, 'options.js')
   
   console.log('✅ Dist folder reorganized')
 }
@@ -205,16 +202,17 @@ export default defineConfig(({ command, mode }) => {
           assetFileNames: (assetInfo) => {
             const name = assetInfo.name || ''
             
-            // HTML, CSS et JS à la racine (seront déplacés après)
-            if (name.endsWith('.html') || name.endsWith('.css') || name.endsWith('.js')) {
+            if (name.endsWith('.html')) {
               return '[name][extname]'
             }
             
-            // Autres assets dans assets/
+            if (name.endsWith('.css') || name.endsWith('.js')) {
+              return 'assets/[name][extname]'
+            }
+            
             return 'assets/[name][extname]'
           }
-        },
-        // external: ['webextension-polyfill']    // Tip: Externaliser les dépendances pour éviter les imports
+        }
       }
     },
     
