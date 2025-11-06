@@ -13,6 +13,67 @@ async function generateManifestWrapper(browser) {
   generateManifest(browser)
 }
 
+// Fonction pour convertir ESM en IIFE (version robuste)
+function convertEsmToIife(filePath, filename) {
+  if (!fs.existsSync(filePath)) {
+    return false
+  }
+  
+  let content = fs.readFileSync(filePath, 'utf8')
+  let modified = false
+  
+  // Vérifier si le fichier contient des imports/exports ESM
+  const hasEsmImports = /^import\s+.*?from\s+['"].*?['"];?\s*$/m.test(content)
+  const hasEsmExports = /^export\s+/m.test(content)
+  
+  if (hasEsmImports || hasEsmExports) {
+    console.log(`🔄 Converting ${filename} from ESM to IIFE...`)
+    
+    // 1. Supprimer les imports ESM
+    content = content.replace(/^import\s+.*?from\s+['"]webextension-polyfill['"];?\s*$/gm, '')
+    content = content.replace(/^import\s+.*?from\s+['"].*?['"];?\s*$/gm, '')
+    
+    // 2. Supprimer les exports
+    content = content.replace(/^export\s+\{[^}]*\};?\s*$/gm, '')
+    content = content.replace(/^export\s+default\s+/gm, '')
+    content = content.replace(/^export\s+/gm, '')
+    
+    // 3. Analyser les déclarations existantes
+    const existingDeclarations = {
+      browser: /(?:const|let|var)\s+browser\s*=/.test(content),
+      chrome: /(?:const|let|var)\s+chrome\s*=/.test(content)
+    }
+    
+    // 4. Préparer les déclarations globales nécessaires
+    let globalDeclarations = []
+    
+    if (!existingDeclarations.browser) {
+      globalDeclarations.push('const browser = globalThis.browser || globalThis.chrome;')
+    }
+    
+    // 5. Ajouter d'autres déclarations si nécessaire
+    if (content.includes('require(') && !content.includes('const require')) {
+      globalDeclarations.push('// Note: require() calls have been removed for web extension compatibility')
+    }
+    
+    const declarationsBlock = globalDeclarations.length > 0 
+      ? `\n// Déclarations globales pour l'extension web\n${globalDeclarations.join('\n')}\n`
+      : ''
+    
+    // 6. Wrapper IIFE
+    content = `(function() {
+'use strict';${declarationsBlock}
+${content}
+})();`
+    
+    fs.writeFileSync(filePath, content, 'utf8')
+    modified = true
+    console.log(`✅ ${filename} converted to IIFE format`)
+  }
+  
+  return modified
+}
+
 // Plugin custom pour gérer le manifest et les assets
 function webExtensionPlugin(browser) {
   return {
@@ -33,6 +94,29 @@ function webExtensionPlugin(browser) {
       
       // Réorganiser la structure de sortie
       reorganizeDistFolder()
+      
+      // POST-PROCESSING : Convertir les scripts ESM en IIFE
+      console.log('🔧 Post-processing: Converting ESM to IIFE...')
+      const distPath = resolve(__dirname, 'dist')
+      
+      // Fichiers à convertir (scripts de background et content)
+      const filesToConvert = [
+        { name: 'background.js', path: resolve(distPath, 'background.js') },
+        { name: 'content.js', path: resolve(distPath, 'content.js') }
+      ]
+      
+      let convertedCount = 0
+      filesToConvert.forEach(({ name, path }) => {
+        if (convertEsmToIife(path, name)) {
+          convertedCount++
+        }
+      })
+      
+      if (convertedCount > 0) {
+        console.log(`✅ ${convertedCount} file(s) converted from ESM to IIFE`)
+      } else {
+        console.log('ℹ️  No ESM conversion needed')
+      }
       
       // Corriger les chemins dans les fichiers HTML
       fixHtmlAssetPaths()
@@ -174,6 +258,7 @@ export default defineConfig(({ command, mode }) => {
         },
         output: {
           format: 'es',                 // Utiliser 'es' au lieu de 'iife' pour éviter les conflits
+          // format: 'iife',
           inlineDynamicImports: false,  // Forcer l'inline des imports pour éviter les modules ESM
           entryFileNames: (chunkInfo) => {
             // Scripts de background et content à la racine
