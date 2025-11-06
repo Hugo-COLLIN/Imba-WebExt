@@ -19,7 +19,7 @@ function buildAndTest() {
   console.log('🔄 Rebuilding tests...');
   
   // Build
-  const build = spawn('bun', ['run', 'scripts/build-tests.js'], {
+  const build = spawn('bun', ['run', 'scripts/tests/build.js'], {
     stdio: 'inherit',
     shell: true
   });

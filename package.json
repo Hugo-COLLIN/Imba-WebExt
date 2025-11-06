@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun scripts/build.js --watch --mode=development",
-    "dev:chrome": "BROWSER=chrome bun scripts/build.js --watch --mode=development",
-    "dev:firefox": "BROWSER=firefox bun scripts/build.js --watch --mode=development",
-    "build": "bun scripts/build.js --mode=development",
-    "build:chrome": "BROWSER=chrome bun scripts/build.js --mode=development",
-    "build:firefox": "BROWSER=firefox bun scripts/build.js --mode=development",
+    "dev": "bun scripts/bundle/build.js --watch --mode=development",
+    "dev:chrome": "BROWSER=chrome bun scripts/bundle/build.js --watch --mode=development",
+    "dev:firefox": "BROWSER=firefox bun scripts/bundle/build.js --watch --mode=development",
+    "build": "bun scripts/bundle/build.js --mode=development",
+    "build:chrome": "BROWSER=chrome bun scripts/bundle/build.js --mode=development",
+    "build:firefox": "BROWSER=firefox bun scripts/bundle/build.js --mode=development",
     "prod": "bun run zip:chrome && bun run zip:firefox",
-    "zip:chrome": "BROWSER=chrome bun scripts/build.js --mode=production && bun scripts/zip.js --browser=chrome",
-    "zip:firefox": "BROWSER=firefox bun scripts/build.js --mode=production && bun scripts/zip.js --browser=firefox",
-    "test": "bun run scripts/build-tests.js && bun test test.local",
-    "test:watch": "bun run scripts/watch-tests.js && bun test test.local"
+    "zip:chrome": "BROWSER=chrome bun scripts/bundle/build.js --mode=production && bun scripts/zip.js --browser=chrome",
+    "zip:firefox": "BROWSER=firefox bun scripts/bundle/build.js --mode=production && bun scripts/zip.js --browser=firefox",
+    "test": "bun run scripts/tests/build.js && bun test test.local",
+    "test:watch": "bun run scripts/tests/watch.js && bun test test.local"
   },
   "dependencies": {
     "turndown": "^7.1.2",
