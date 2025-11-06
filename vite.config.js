@@ -195,6 +195,8 @@ export default defineConfig(({ command, mode }) => {
           options: resolve(__dirname, 'src/options/options.html')
         },
         output: {
+          format: 'es',                 // Utiliser 'es' au lieu de 'iife' pour éviter les conflits
+          inlineDynamicImports: false,  // Forcer l'inline des imports pour éviter les modules ESM
           entryFileNames: (chunkInfo) => {
             // Scripts à la racine
             return '[name].js'
@@ -211,7 +213,8 @@ export default defineConfig(({ command, mode }) => {
             // Autres assets dans assets/
             return 'assets/[name][extname]'
           }
-        }
+        },
+        // external: ['webextension-polyfill']    // Tip: Externaliser les dépendances pour éviter les imports
       }
     },
     
