@@ -16,7 +16,6 @@
     "test:watch": "bun run scripts/tests/build.js --watch && bun test test.local"
   },
   "dependencies": {
-    "turndown": "^7.1.2",
     "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {
