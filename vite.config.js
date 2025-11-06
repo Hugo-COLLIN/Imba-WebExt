@@ -36,6 +36,9 @@ function webExtensionPlugin(browser) {
       // Réorganiser la structure de sortie
       reorganizeDistFolder()
       
+      // Corriger les chemins dans les fichiers HTML
+      fixHtmlAssetPaths()
+      
       console.log('✅ Build completed for', browser)
     },
     
@@ -64,6 +67,39 @@ function webExtensionPlugin(browser) {
       })
     }
   }
+}
+
+// Fonction pour corriger les chemins dans les fichiers HTML
+function fixHtmlAssetPaths() {
+  const distPath = resolve(__dirname, 'dist')
+  
+  // Corriger popup.html
+  const popupHtmlPath = resolve(distPath, 'popup.html')
+  if (fs.existsSync(popupHtmlPath)) {
+    let content = fs.readFileSync(popupHtmlPath, 'utf8')
+    
+    // Remplacer les chemins absolus par des chemins relatifs vers assets/
+    content = content.replace(/src="\/popup\.js"/g, 'src="assets/popup.js"')
+    content = content.replace(/href="\/popup\.css"/g, 'href="assets/popup.css"')
+    content = content.replace(/href="\/chunks\//g, 'href="chunks/')
+    
+    fs.writeFileSync(popupHtmlPath, content, 'utf8')
+  }
+  
+  // Corriger options.html
+  const optionsHtmlPath = resolve(distPath, 'options.html')
+  if (fs.existsSync(optionsHtmlPath)) {
+    let content = fs.readFileSync(optionsHtmlPath, 'utf8')
+    
+    // Remplacer les chemins absolus par des chemins relatifs vers assets/
+    content = content.replace(/src="\/options\.js"/g, 'src="assets/options.js"')
+    content = content.replace(/href="\/options\.css"/g, 'href="assets/options.css"')
+    content = content.replace(/href="\/chunks\//g, 'href="chunks/')
+    
+    fs.writeFileSync(optionsHtmlPath, content, 'utf8')
+  }
+  
+  console.log('✅ HTML asset paths fixed')
 }
 
 // Fonction pour réorganiser le dossier dist
@@ -137,7 +173,7 @@ export default defineConfig(({ command, mode }) => {
   const isDev = command === 'serve'
   const browser = process.env.BROWSER || 'chrome'
   
-  console.log(`\n🚀 Building for ${browser} in ${isDev ? 'development' : 'production'} mode\n`)
+  console.log(`\n🚀 Building for ${isDev ? 'development' : 'production'} mode for ${browser}\n`)
   
   return {
     plugins: [

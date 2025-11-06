@@ -1,24 +1,41 @@
-import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
+import { readJsonFile, writeJsonFile } from '../utils/json'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-// Fonctions utilitaires inline (pour éviter les imports)
-function readJsonFile(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, 'utf8'))
-}
+/**
+ * Convertit les chemins sources vers les chemins de sortie réels
+ */
+export function convertSourcePathToOutput(sourcePath) {
+  if (!sourcePath || typeof sourcePath !== 'string') {
+    return sourcePath
+  }
 
-function writeJsonFile(filePath, data) {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
-}
+  // Convertir les chemins relatifs src/ vers les chemins de sortie
+  if (sourcePath.startsWith('src/')) {
+    const relativePath = sourcePath.substring(4) // Enlever 'src/'
+    
+    if (sourcePath.endsWith('.imba')) {
+      // Les fichiers .imba deviennent .js à la racine de dist/
+      const fileName = path.basename(relativePath, '.imba')
+      return `${fileName}.js`
+    } else if (sourcePath.endsWith('.html')) {
+      // Les fichiers HTML vont à la racine de dist/ avec juste le nom de fichier
+      const fileName = path.basename(relativePath)
+      return fileName
+    }
+  }
 
-function convertSourcePathToOutput(sourcePath) {
+  // Pour les fichiers .imba sans préfixe src/
+  if (sourcePath.endsWith('.imba')) {
+    const fileName = path.basename(sourcePath, '.imba')
+    return `${fileName}.js`
+  }
+
   return sourcePath
-    .replace(/\.imba$/, '.js')
-    .replace(/^src\//, '')
 }
 
 function adaptManifestForFirefox(manifest) {
@@ -39,18 +56,18 @@ function adaptManifestForFirefox(manifest) {
     manifest.background = {
       scripts: [manifest.background.service_worker],
       persistent: false
-    };
+    }
   }
 
   // Convertir action en browser_action
   if (manifest.action) {
-    manifest.browser_action = manifest.action;
-    delete manifest.action;
+    manifest.browser_action = manifest.action
+    delete manifest.action
   }
 
   // Adapter options_ui
   if (manifest.options_ui && manifest.options_ui.page) {
-    manifest.options_ui.open_in_tab = true;
+    manifest.options_ui.open_in_tab = true
   }
   
   // Ajouter l'ID obligatoire pour Firefox
@@ -97,8 +114,29 @@ export function generateManifest(targetBrowser, version) {
   // Nettoyage des propriétés vides
   cleanEmptyProperties(manifest)
   
+  // Post-traitement pour corriger les chemins HTML après réorganisation
+  fixHtmlPaths(manifest)
+  
   writeJsonFile(distManifestPath, manifest)
   console.log(`✅ Manifest generated: ${distManifestPath}`)
+}
+
+/**
+ * Corrige les chemins HTML dans le manifest après réorganisation
+ */
+function fixHtmlPaths(manifest) {
+  // Corriger les chemins popup
+  if (manifest.action && manifest.action.default_popup) {
+    manifest.action.default_popup = path.basename(manifest.action.default_popup)
+  }
+  if (manifest.browser_action && manifest.browser_action.default_popup) {
+    manifest.browser_action.default_popup = path.basename(manifest.browser_action.default_popup)
+  }
+  
+  // Corriger les chemins options
+  if (manifest.options_ui && manifest.options_ui.page) {
+    manifest.options_ui.page = path.basename(manifest.options_ui.page)
+  }
 }
 
 /**
