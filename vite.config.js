@@ -87,17 +87,20 @@ function fixHtmlAssetPaths() {
       content = content.replace(assetRegex, (match, attr, path, ext) => {
         // Si le chemin ne commence pas déjà par "assets/"
         if (!path.startsWith('assets/')) {
-          // Si c'est un chunk
+          // Pour les chunks
           if (path.startsWith('chunks/')) {
-            const newPath = `assets/${path}`
             modified = true
-            return `${attr}="${newPath}"`
+            return `${attr}="assets/${path}"`
           }
-          // Si c'est un fichier principal (popup.js, options.js, etc.)
-          else if (path.match(/^[^\/]+\.(js|css)$/)) {
-            const newPath = `assets/${path}`
+          // Pour les fichiers des pages (popup.js, options.js, etc.)
+          else if (path.match(/^(popup|options)\.(js|css)$/)) {
             modified = true
-            return `${attr}="${newPath}"`
+            return `${attr}="assets/${path}"`
+          }
+          // Pour les autres assets (sauf background et content)
+          else if (path.match(/^[^\/]+\.(js|css)$/) && !path.match(/^(background|content)\.js$/)) {
+            modified = true
+            return `${attr}="assets/${path}"`
           }
         }
         return match
@@ -114,7 +117,7 @@ function fixHtmlAssetPaths() {
 function reorganizeDistFolder() {
   const distPath = resolve(__dirname, 'dist')
   
-  // 1. Déplacer popup.html et options.html à la racine
+  // Déplacer les fichiers HTML à la racine
   const popupHtmlSrc = resolve(distPath, 'src/popup/popup.html')
   const popupHtmlDest = resolve(distPath, 'popup.html')
   if (fs.existsSync(popupHtmlSrc)) {
@@ -127,7 +130,7 @@ function reorganizeDistFolder() {
     fs.renameSync(optionsHtmlSrc, optionsHtmlDest)
   }
   
-  // 2. Nettoyer le dossier src/
+  // Nettoyer le dossier src/
   const srcDir = resolve(distPath, 'src')
   if (fs.existsSync(srcDir)) {
     fs.rmSync(srcDir, { recursive: true, force: true })
@@ -136,17 +139,6 @@ function reorganizeDistFolder() {
   console.log('✅ Dist folder reorganized')
 }
 
-// Fonction pour déplacer un fichier vers assets/
-function moveFileToAssets(distPath, filename) {
-  const src = resolve(distPath, filename)
-  const dest = resolve(distPath, 'assets', filename)
-  
-  if (fs.existsSync(src)) {
-    fs.renameSync(src, dest)
-  }
-}
-
-// Fonction pour copier récursivement
 function copyRecursive(src, dest) {
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true })
@@ -195,19 +187,19 @@ export default defineConfig(({ command, mode }) => {
           format: 'es',                 // Utiliser 'es' au lieu de 'iife' pour éviter les conflits
           inlineDynamicImports: false,  // Forcer l'inline des imports pour éviter les modules ESM
           entryFileNames: (chunkInfo) => {
-            // Scripts à la racine
-            return '[name].js'
+            // Scripts de background et content à la racine
+            if (chunkInfo.name === 'background' || chunkInfo.name === 'content') {
+              return '[name].js'
+            }
+            // Scripts des pages dans assets/
+            return 'assets/[name].js'
           },
-          chunkFileNames: 'chunks/[name].[hash].js',
+          chunkFileNames: 'assets/chunks/[name].[hash].js',
           assetFileNames: (assetInfo) => {
             const name = assetInfo.name || ''
             
             if (name.endsWith('.html')) {
               return '[name][extname]'
-            }
-            
-            if (name.endsWith('.css') || name.endsWith('.js')) {
-              return 'assets/[name][extname]'
             }
             
             return 'assets/[name][extname]'
