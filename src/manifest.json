@@ -1,10 +1,18 @@
 {
-  "name": "Imba WebExtension",
+  "name": "Save Web Content",
+  "version": "1.0.0",
+  "description": "Extraction et sauvegarde de contenu web en différents formats",
   "{{chrome}}.manifest_version": 3,
   "{{firefox}}.manifest_version": 2,
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "downloads",
+    "clipboardWrite",
+    "scripting"
+  ],
+  "{{chrome}}.host_permissions": [
+    "<all_urls>"
   ],
   "background": {
     "{{firefox}}.scripts": ["src/background.imba"],
@@ -13,12 +21,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content.imba"]
+      "js": ["src/content.imba"],
+      "run_at": "document_idle"
     }
   ],
   "{{chrome}}.action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Imba Extension",
+    "default_title": "Save Web Content",
     "default_icon": {
       "16": "assets/icons/icon16.png",
       "48": "assets/icons/icon48.png",
@@ -27,7 +36,7 @@
   },
   "{{firefox}}.browser_action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Imba Extension",
+    "default_title": "Save Web Content",
     "default_icon": {
       "16": "assets/icons/icon16.png",
       "48": "assets/icons/icon48.png",
@@ -40,6 +49,7 @@
     "128": "assets/icons/icon128.png"
   },
   "options_ui": {
-    "page": "src/options/options.html"
+    "page": "src/options/options.html",
+    "{{chrome}}.open_in_tab": true
   }
 }
