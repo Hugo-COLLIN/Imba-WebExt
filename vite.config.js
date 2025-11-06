@@ -40,29 +40,18 @@ function webExtensionPlugin(browser) {
       console.log('✅ Build completed for', browser)
     },
     
-    // Gérer le mode dev
-    async configureServer(server) {
-      // Générer le manifest initial en mode dev
+    // Gérer le mode dev avec watch
+    async buildStart() {
+      // Générer le manifest au démarrage du build
       await generateManifestWrapper(browser)
       
-      // Copier les assets en mode dev
+      // Copier les assets
       const assetsSource = resolve(__dirname, 'src/assets')
       const assetsDest = resolve(__dirname, 'dist/assets')
       
       if (fs.existsSync(assetsSource)) {
         copyRecursive(assetsSource, assetsDest)
       }
-      
-      // Watcher pour le manifest
-      const manifestPath = resolve(__dirname, 'src/manifest.json')
-      
-      server.watcher.add(manifestPath)
-      server.watcher.on('change', async (file) => {
-        if (file === manifestPath) {
-          await generateManifestWrapper(browser)
-          console.log('✅ Manifest updated for', browser)
-        }
-      })
     }
   }
 }
@@ -159,7 +148,7 @@ function copyRecursive(src, dest) {
 }
 
 export default defineConfig(({ command, mode }) => {
-  const isDev = command === 'serve'
+  const isDev = mode === 'development'
   const browser = process.env.BROWSER || 'chrome'
   
   console.log(`\n🚀 Building for ${isDev ? 'development' : 'production'} mode for ${browser}\n`)
@@ -174,7 +163,7 @@ export default defineConfig(({ command, mode }) => {
       outDir: 'dist',
       emptyOutDir: true,
       sourcemap: isDev ? 'inline' : false,
-      minify: isDev ? false : 'esbuild',
+      minify: !isDev && browser !== "firefox",
       
       rollupOptions: {
         input: {
