@@ -1,24 +1,26 @@
-# src/Popup/Popup.imba
+import browser from 'webextension-polyfill'
 
 tag PopupApp
-	prop count = 0
+	prop count
 
 	def increment
 		count++
-		# Sauvegarder dans le storage
-		if typeof chrome !== 'undefined'
-			chrome.storage.local.set({count: count})
+		# Save in the storage
+		browser.storage.local.set({count: count})
+
+	def decrement
+		count--
+		# Save in the storage
+		browser.storage.local.set({count: count})
 
 	def mount
-		# Charger la valeur sauvegardée
-		if typeof chrome !== 'undefined'
-			chrome.storage.local.get(['count']) do |result|
-				count = result.count || 0
-				imba.commit!
+		# Load the saved value
+		const result = await browser.storage.local.get(['count'])
+		console.log result
+		count = result.count || 0
 	
 	def openOptions
-		if typeof chrome !== 'undefined'
-			chrome.runtime.openOptionsPage!
+		browser.runtime.openOptionsPage!
 	
 	css .popup-container
 				padding: 20px
@@ -39,11 +41,11 @@ tag PopupApp
 
 	<self>
 		<div.popup-container>
-			<h1> "Extension Imba"
-			<p> "Compteur: {count}"
-			<button @click=increment> "Incrémenter"
-			<button @click=(count--)> "Decrement"
+			<h1> "Imba Extension"
+			<p> "Counter: {count}"
+			<button @click=increment> "Increment"
+			<button @click=decrement> "Decrement"
 			<button @click=openOptions> "Options"
 
-# Monter l'application
+# Mount the app
 imba.mount <PopupApp>

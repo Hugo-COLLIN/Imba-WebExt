@@ -1,12 +1,8 @@
-# Background script pour Chrome & Firefox
-# Ce fichier est le service worker (Chrome MV3) ou script background (Firefox MV2)
+import browser from 'webextension-polyfill'
 
 console.log "🚀 Background script loaded"
 
-# Détection du navigateur
-const browser = globalThis.browser || globalThis.chrome
-
-# Gestion de l'installation
+# Manage installation
 if browser.runtime.onInstalled
 	browser.runtime.onInstalled.addListener do(details)
 		if details.reason === 'install'
@@ -19,29 +15,29 @@ if browser.runtime.onInstalled
 		elif details.reason === 'update'
 			console.log "🔄 Extension updated"
 
-# Gestion des messages depuis content scripts ou popup
+# Manage messages from content scripts and popup
 if browser.runtime.onMessage
 	browser.runtime.onMessage.addListener do(message, sender, sendResponse)
 		console.log "📨 Message received:", message
 		
 		switch message.type
 			when 'GET_DATA'
-				# Récupérer des données du storage
+				# Retrieve data from storage
 				browser.storage.sync.get null, do(data)
 					sendResponse { success: true, data: data }
 			
 			when 'SET_DATA'
-				# Sauvegarder des données
+				# Save data
 				browser.storage.sync.set message.data, do
 					sendResponse { success: true }
 			
 			when 'PING'
 				sendResponse { success: true, message: 'pong' }
 		
-		# Retourner true pour indiquer une réponse asynchrone
+		# Return true to indicate an asynchronous response
 		return true
 
-# Gestion des commandes
-if browser.commands?.onCommand
+# Manage commands
+if browser.commands..onCommand
 	browser.commands.onCommand.addListener do(command)
 		console.log "⌨️  Command received:", command

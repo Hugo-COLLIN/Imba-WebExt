@@ -1,9 +1,11 @@
-# console.log "Content script loaded on:", window.location.href
+import browser from 'webextension-polyfill'
+
+console.log "Content script loaded on:", window.location.href
 console.log "Content script loaded"
 
 # Injection d'un élément dans la page
 const injectedElement = <div>
-	<p> "Extension Imba active!"
+	<p> "Imba Extension is active!"
 	css position: fixed
 		top: 10px
 		right: 10px
@@ -14,10 +16,9 @@ const injectedElement = <div>
 		z-index: 10000
 		font-family: Arial, sans-serif
 
-document.body.appendChild(injectedElement)
+document.body.appendChild injectedElement
 
 # Écouter les messages du background
-if typeof chrome !== 'undefined'
-	chrome.runtime.onMessage.addListener do |message, sender, sendResponse|
-		console.log "Content script received:", message
-		sendResponse({status: "received"})
+browser.runtime.onMessage.addListener do |message, sender, sendResponse|
+	console.log "Content script received:", message
+	sendResponse({status: "received"})

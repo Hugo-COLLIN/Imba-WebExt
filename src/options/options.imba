@@ -1,33 +1,39 @@
-# src/Options/Options.imba
+import browser from 'webextension-polyfill'
 
 tag OptionsApp
-	prop settings = {
+	prop settings = {}
+
+	prop defaultSettings = {
 		enabled: true
 		theme: 'light'
 		notifications: false
 	}
 
+	prop showSaved = no
+	
 	def mount
 		loadSettings!
 
 	def loadSettings
-		if typeof chrome !== 'undefined'
-			chrome.storage.sync.get(['settings']) do |result|
-				if result.settings
-					settings = {...settings, ...result.settings}
-				imba.commit!
+		const result = await browser.storage.sync.get(['settings'])
+		settings = {...defaultSettings, ...result.settings} if result.settings
 
 	def saveSettings
-		if typeof chrome !== 'undefined'
-			chrome.storage.sync.set({settings: settings}) do
-				showSavedMessage!
+		browser.storage.sync.set({settings: settings}) do
+			console.log "Settings saved!"
+			browser.runtime.sendMessage({ message: "Saved settings", type: "PING" })
+				.then(
+					do(response) console.log "Message from the background script: {response.message}",
+					do(error)	 console.log "Error: ${error}"
+				)
+			showSavedMessage!
 
 	def showSavedMessage
-		const message = document.querySelector('.saved-message')
-		if message
-			message.style.display = 'block'
-			setTimeout(&, 2000) do
-				message.style.display = 'none'
+		showSaved = yes
+		imba.commit!
+		setTimeout(&, 2000) do
+			showSaved = no
+			imba.commit!
 
 	css .options-container
 			max-width: 600px
@@ -59,28 +65,27 @@ tag OptionsApp
 
 	<self>
 		<div.options-container>
-			<h1> "Options de l'Extension"
+			<h1> "Extension Options"
 			
 			<div.option-group>
 				<label>
 					<input type="checkbox" bind=settings.enabled>
-					<span> "Activer l'extension"
+					<span> "Enable extension"
 			
 			<div.option-group>
 				<label> "Thème:"
 				<select bind=settings.theme>
-					<option value="light"> "Clair"
-					<option value="dark"> "Sombre"
+					<option value="light"> "Light"
+					<option value="dark"> "Dark"
 			
 			<div.option-group>
 				<label>
 					<input type="checkbox" bind=settings.notifications>
 					<span> "Notifications"
 			
-			<button @click=saveSettings> "Sauvegarder"
-			
-			<div.saved-message style="display: none; color: green; margin-top: 10px;">
-				"Paramètres sauvegardés !"
+			<button @click=saveSettings> "Save"
+			<div [d:none] [d:block color:green mt:10px]=showSaved>
+				"Settings saved!"
 
-# Monter l'application
+# Mount the app
 imba.mount <OptionsApp>
