@@ -3,25 +3,27 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { generateManifest } from '../manifest/generator.js';
 
-// Obtenir le chemin du fichier actuel et la racine du projet
+// Get the current file path and project root
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = resolve(__dirname, '../..');
 
-// Helper pour résoudre les chemins depuis la racine du projet
+// Helper to resolve paths from the project root
 const fromRoot = (...paths) => resolve(projectRoot, ...paths);
 
-// Plugin custom pour gérer le manifest et les assets
+/**
+ * Custom plugin to manage the manifest and assets
+ */
 export function webExtensionPlugin(browser, buildType) {
   return {
     name: 'web-extension-plugin',
 
     async writeBundle() {
-      // Générer le manifest seulement lors du dernier build (UI)
+      // Generate the manifest only during the last build (UI)
       if (buildType === 'ui') {
         await generateManifest(browser);
 
-        // Copier les assets
+        // Copy assets
         const assetsSource = fromRoot('src/assets');
         const assetsDest = fromRoot('dist/assets');
 
@@ -30,27 +32,27 @@ export function webExtensionPlugin(browser, buildType) {
           console.log('✅ Assets copied');
         }
 
-        // Copier README et LICENSE
+        // Copy README et LICENSE
         copyRootFiles();
 
-        // Réorganiser la structure de sortie
+        // Reorganize output structure
         reorganizeDistFolder();
 
-        // Corriger les chemins dans les fichiers HTML
+        // Fix paths in HTML files
         fixHtmlAssetPaths();
 
         console.log(`✅ Build completed for ${browser}`);
       }
     },
 
-    // Gérer le mode dev avec watch
+    // Manage dev mode with watch
     async buildStart() {
-      // Générer le manifest au démarrage du premier build
+      // Generate the manifest at the start of the first build
       if (buildType === 'background') {
         await generateManifest(browser);
       }
 
-      // Copier les assets au démarrage du build UI
+      // Copy the assets at the start of the UI build
       if (buildType === 'ui') {
         const assetsSource = fromRoot('src/assets');
         const assetsDest = fromRoot('dist/assets');
@@ -59,19 +61,21 @@ export function webExtensionPlugin(browser, buildType) {
           copyRecursive(assetsSource, assetsDest);
         }
 
-        // Copier README et LICENSE aussi au démarrage
+        // Also copy README and LICENSE at startup
         copyRootFiles();
       }
     }
   };
 }
 
-// Fonction pour copier README et LICENSE
+/**
+ * Function to copy README and LICENSE
+ */
 function copyRootFiles() {
   const rootFiles = ['README.md', 'README', 'LICENSE', 'LICENSE.md', 'LICENSE.txt'];
   const distPath = fromRoot('dist');
 
-  // Créer le dossier dist s'il n'existe pas
+  // Create the dist/ folder if it does not exist
   if (!fs.existsSync(distPath)) {
     fs.mkdirSync(distPath, { recursive: true });
   }
@@ -87,11 +91,13 @@ function copyRootFiles() {
   });
 }
 
-// Fonction améliorée pour corriger les chemins dans les fichiers HTML
+/**
+ * Improved function to fix paths in HTML files
+ */
 function fixHtmlAssetPaths() {
   const distPath = fromRoot('dist');
 
-  // Liste des fichiers HTML à traiter
+  // List of HTML files to process
   const htmlFiles = ['popup.html', 'options.html'];
 
   htmlFiles.forEach(htmlFile => {
@@ -101,11 +107,11 @@ function fixHtmlAssetPaths() {
       let content = fs.readFileSync(htmlPath, 'utf8');
       let modified = false;
 
-      // Regex pour trouver tous les attributs src et href
+      // Search to find all the src and href attributes
       const assetRegex = /(src|href)="([^"]+\.(js|css|png|jpg|jpeg|gif|svg|ico))"/g;
 
       content = content.replace(assetRegex, (match, attr, path, ext) => {
-        // Si le chemin ne commence pas déjà par "assets/"
+        // If the path does not already start with "assets/
         if (!path.startsWith('assets/')) {
           // Pour les chunks
           if (path.startsWith('chunks/')) {
@@ -113,13 +119,13 @@ function fixHtmlAssetPaths() {
             return `${attr}="assets/${path}"`;
           }
 
-          // Pour les fichiers des pages (popup.js, options.js, etc.)
+          // For the page files (popup.js, options.js, etc.)
           else if (path.match(/^(popup|options)\.(js|css)$/)) {
             modified = true;
             return `${attr}="assets/${path}"`;
           }
 
-          // Pour les autres assets (sauf background et content)
+          // For the other assets (except background and content)
           else if (path.match(/^[^\/]+\.(js|css)$/) && !path.match(/^(background|content)\.js$/)) {
             modified = true;
             return `${attr}="assets/${path}"`;
@@ -136,10 +142,13 @@ function fixHtmlAssetPaths() {
   });
 }
 
+/**
+ * Reorganize dist/ forlder after Imba builds
+ */
 function reorganizeDistFolder() {
   const distPath = fromRoot('dist');
 
-  // Déplacer les fichiers HTML à la racine
+  // Move the HTML files to the root
   const popupHtmlSrc = resolve(distPath, 'src/popup/popup.html');
   const popupHtmlDest = resolve(distPath, 'popup.html');
   if (fs.existsSync(popupHtmlSrc)) {
@@ -152,7 +161,7 @@ function reorganizeDistFolder() {
     fs.renameSync(optionsHtmlSrc, optionsHtmlDest);
   }
 
-  // Nettoyer le dossier src/
+  // Clean the src/ folder
   const srcDir = resolve(distPath, 'src');
   if (fs.existsSync(srcDir)) {
     fs.rmSync(srcDir, { recursive: true, force: true });
@@ -161,6 +170,9 @@ function reorganizeDistFolder() {
   console.log('✅ Dist folder reorganized');
 }
 
+/**
+ * Recursively copy a file
+ */
 function copyRecursive(src, dest) {
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });

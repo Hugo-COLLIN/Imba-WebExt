@@ -1,35 +1,30 @@
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { dirname } from 'path'
 import { readJsonFile, writeJsonFile } from '../utils/json'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
-
 /**
- * Convertit les chemins sources vers les chemins de sortie réels
+ * Converts source paths to actual output paths
  */
 export function convertSourcePathToOutput(sourcePath) {
   if (!sourcePath || typeof sourcePath !== 'string') {
     return sourcePath
   }
 
-  // Convertir les chemins relatifs src/ vers les chemins de sortie
+  // Convert relative src/ paths to output paths
   if (sourcePath.startsWith('src/')) {
     const relativePath = sourcePath.substring(4) // Enlever 'src/'
     
     if (sourcePath.endsWith('.imba')) {
-      // Les fichiers .imba deviennent .js à la racine de dist/
+      // The .imba files become .js at the dist/ root
       const fileName = path.basename(relativePath, '.imba')
       return `${fileName}.js`
     } else if (sourcePath.endsWith('.html')) {
-      // Les fichiers HTML vont à la racine de dist/ avec juste le nom de fichier
+      // HTML files go to the root of dist/ with just the file name
       const fileName = path.basename(relativePath)
       return fileName
     }
   }
 
-  // Pour les fichiers .imba sans préfixe src/
+  // For .imba files without src/ prefix
   if (sourcePath.endsWith('.imba')) {
     const fileName = path.basename(sourcePath, '.imba')
     return `${fileName}.js`
@@ -38,10 +33,13 @@ export function convertSourcePathToOutput(sourcePath) {
   return sourcePath
 }
 
+/**
+ * Adapt manifest for Firefox
+ */
 function adaptManifestForFirefox(manifest) {
-  // Manifest v2 pour Firefox
+  // Manifest v2 for Firefox
   if (manifest.manifest_version === 2) {
-    // Convertir host_permissions en permissions pour v2
+    // Convert host_permissions to permissions for v2
     if (manifest.host_permissions) {
       manifest.permissions = [
         ...(manifest.permissions || []),
@@ -51,7 +49,7 @@ function adaptManifestForFirefox(manifest) {
     }
   }
 
-  // Convertir service_worker en scripts pour Firefox MV2
+  // Convert service_worker to scripts for Firefox MV2
   if (manifest.background && manifest.background.service_worker) {
     manifest.background = {
       scripts: [manifest.background.service_worker],
@@ -59,18 +57,18 @@ function adaptManifestForFirefox(manifest) {
     }
   }
 
-  // Convertir action en browser_action
+  // Convert action to browser_action
   if (manifest.action) {
     manifest.browser_action = manifest.action
     delete manifest.action
   }
 
-  // Adapter options_ui
+  // Adapt options_ui
   if (manifest.options_ui && manifest.options_ui.page) {
     manifest.options_ui.open_in_tab = true
   }
   
-  // Ajouter l'ID obligatoire pour Firefox
+  // Add required ID for Firefox
   if (!manifest.browser_specific_settings) {
     console.warn("⚠️  Please add a Firefox ID in your manifest, a temporary one is provided as an example")
     manifest.browser_specific_settings = {
@@ -83,7 +81,7 @@ function adaptManifestForFirefox(manifest) {
 }
 
 /**
- * Génère le manifest.json pour le navigateur cible
+ * Generate manifest.json for the target browser
  */
 export function generateManifest(targetBrowser, version) {
   const srcManifestPath = path.join(process.cwd(), 'src', 'manifest.json')
@@ -95,7 +93,7 @@ export function generateManifest(targetBrowser, version) {
   
   console.log(`📋 Generating manifest for ${targetBrowser}...`)
   
-  // Manifest de base
+  // Base manifest
   let manifest = {
     manifest_version: srcManifest[`{{${targetBrowser}}}.manifest_version`] || (targetBrowser === 'firefox' ? 2 : 3),
     name: srcManifest.name || pkg.name || 'My Extension',
@@ -104,18 +102,18 @@ export function generateManifest(targetBrowser, version) {
     homepage_url: srcManifest.homepage_url || pkg.homepage,
   }
   
-  // Traitement récursif des propriétés avec la syntaxe {{browser}}
+  // Recursive processing of properties with {{browser}} syntax
   processObject(srcManifest, manifest, targetBrowser)
   
-  // Adaptations spécifiques Firefox
+  // Firefox specific adaptations
   if (targetBrowser === 'firefox') {
     adaptManifestForFirefox(manifest)
   }
   
-  // Nettoyage des propriétés vides
+  // Cleaning up empty properties
   cleanEmptyProperties(manifest)
   
-  // Post-traitement pour corriger les chemins HTML après réorganisation
+  // Post-processing to correct HTML paths after reorganization
   fixHtmlPaths(manifest)
   
   writeJsonFile(distManifestPath, manifest)
@@ -123,10 +121,10 @@ export function generateManifest(targetBrowser, version) {
 }
 
 /**
- * Corrige les chemins HTML dans le manifest après réorganisation
+ * Correct the HTML paths in the manifest after reorganization
  */
 function fixHtmlPaths(manifest) {
-  // Corriger les chemins popup
+  // Fix popup paths
   if (manifest.action && manifest.action.default_popup) {
     manifest.action.default_popup = path.basename(manifest.action.default_popup)
   }
@@ -134,14 +132,14 @@ function fixHtmlPaths(manifest) {
     manifest.browser_action.default_popup = path.basename(manifest.browser_action.default_popup)
   }
   
-  // Corriger les chemins options
+  // Fix options paths
   if (manifest.options_ui && manifest.options_ui.page) {
     manifest.options_ui.page = path.basename(manifest.options_ui.page)
   }
 }
 
 /**
- * Traite récursivement les propriétés du manifest
+ * Recursively process the properties of the manifest
  */
 function processObject(obj, targetObj, targetBrowser) {
   for (const key in obj) {
@@ -186,7 +184,7 @@ function processObject(obj, targetObj, targetBrowser) {
 }
 
 /**
- * Nettoie les propriétés vides du manifest
+ * Clean up empty properties from the manifest
  */
 function cleanEmptyProperties(obj) {
   Object.keys(obj).forEach(key => {

@@ -8,7 +8,7 @@ import fs from 'fs'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-// Récupérer les arguments
+// Retrieve the arguments
 const args = process.argv.slice(2)
 const isWatch = args.includes('--watch')
 
@@ -23,7 +23,9 @@ const browser = browserArg ? browserArg.split('=')[1] : (process.env.BROWSER || 
 
 console.log(`\n🎯 Starting ${isWatch ? 'watch' : 'build'} for ${browser} (${mode})\n`)
 
-// Fonction pour nettoyer le dossier dist
+/**
+ * Clean the dist/ folder
+ */
 function cleanDist() {
   const distPath = resolve(dirname(__dirname), 'dist')
   if (fs.existsSync(distPath)) {
@@ -33,7 +35,9 @@ function cleanDist() {
   }
 }
 
-// Fonction pour exécuter un build Vite
+/**
+ * Function to execute a Vite build
+ */
 function runViteBuild(buildType, isFirst = false) {
   return new Promise((resolve, reject) => {
     const viteArgs = [
@@ -60,7 +64,7 @@ function runViteBuild(buildType, isFirst = false) {
     })
     
     if (isWatch && !isFirst) {
-      // En mode watch, ne pas attendre la fin du processus
+      // In watch mode, do not wait for the end of the process
       console.log(`✅ ${buildType} watch started`)
       resolve()
     } else {
@@ -76,11 +80,14 @@ function runViteBuild(buildType, isFirst = false) {
   })
 }
 
-// Fonction principale
+/**
+ * Main function
+ */
 async function main() {
+  cleanDist();
   try {
     if (isWatch) {
-      // Mode watch : lancer les 3 builds en parallèle
+      // Watch mode: launch parallel builds
       console.log('🔄 Starting watch mode for all builds...\n')
       
       // Launch the 3 watchers in parallel
@@ -92,10 +99,10 @@ async function main() {
       
       console.log('\n👀 Watching for changes...')
       
-      // Garder le processus vivant
+      // Keep the process alive
       process.stdin.resume()
     } else {
-      // Mode build normal : séquentiel
+      // Normal build mode: sequential
       console.log('🔨 Building all targets...\n')
       
       await runViteBuild('background')

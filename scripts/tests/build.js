@@ -7,7 +7,9 @@ const testDir = 'test';
 const outDir = 'test.local';
 const watchMode = process.argv.includes('--watch');
 
-// Trouve tous les fichiers .imba
+/**
+ * Find all .imba files
+ */
 function findImbaFiles(dir, base = dir) {
   const files = [];
   const items = readdirSync(dir);
@@ -26,20 +28,24 @@ function findImbaFiles(dir, base = dir) {
   return files;
 }
 
-// Crée les répertoires nécessaires
+/**
+ * Create necessary directories
+ */
 function ensureDir(filePath) {
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
 }
 
-// Transpile un fichier Imba en JS
+/**
+ * Transpile an Imba file into JS
+ */
 function transpileImba(inputPath, outputPath) {
   console.log(`Transpiling: ${inputPath}`);
   
   try {
     const source = readFileSync(inputPath, 'utf8');
     
-    // Utilise le compilateur Imba
+    // Uses the Imba compiler
     const result = compile(source, {
       filename: inputPath,
       sourcePath: inputPath,
@@ -49,7 +55,7 @@ function transpileImba(inputPath, outputPath) {
       imbaPath: 'imba'
     });
     
-    // Récupère le code JavaScript généré
+    // Retrieve the generated JavaScript code
     const jsCode = result.js || result.toString();
     
     ensureDir(outputPath);
@@ -66,7 +72,9 @@ function transpileImba(inputPath, outputPath) {
   }
 }
 
-// Compile tous les fichiers
+/**
+ * Compile all files
+ */
 function buildAll() {
   const imbaFiles = findImbaFiles(testDir);
   
@@ -98,7 +106,7 @@ function buildAll() {
   return allSuccess;
 }
 
-// Mode watch
+// Watch mode
 if (watchMode) {
   let isBuilding = false;
   let buildQueued = false;
@@ -106,7 +114,7 @@ if (watchMode) {
   
   console.log('👀 Watching test files for changes...\n');
   
-  // Fonction pour builder et lancer les tests
+  // Function to build and launch tests
   function buildAndTest() {
     if (isBuilding) {
       buildQueued = true;
@@ -149,10 +157,10 @@ if (watchMode) {
     }
   }
   
-  // Lance une première fois
+  // Launch a first time
   buildAndTest();
   
-  // Watch le dossier test/ avec debouncing
+  // Watch the test/ folder with debouncing
   watch(testDir, { recursive: true }, (eventType, filename) => {
     if (filename && filename.endsWith('.imba')) {
       clearTimeout(debounceTimer);
@@ -164,11 +172,11 @@ if (watchMode) {
     }
   });
   
-  // Empêche le script de se terminer
+  // Prevent the script from ending
   process.stdin.resume();
   
 } else {
-  // Mode build simple
+  // Simple build mode
   try {
     const success = buildAll();
     process.exit(success ? 0 : 1);

@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * Lit un fichier JSON
+ * Read a JSON file
  */
 export function readJsonFile(filePath) {
   try {
@@ -15,7 +15,7 @@ export function readJsonFile(filePath) {
 }
 
 /**
- * Écrit un fichier JSON avec formatage
+ * Write a JSON file with formatting
  */
 export function writeJsonFile(filePath, data) {
   const dir = path.dirname(filePath);

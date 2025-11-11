@@ -15,10 +15,10 @@ export default defineConfig(({ command, mode }) => {
   
   console.log(`\n🚀 Building ${buildType} for ${isDev ? 'development' : 'production'} mode for ${browser}\n`)
   
-  // Déterminer si on est en mode watch
+  // Determine if we are in watch mode
   const isWatch = process.env.VITE_WATCH === 'true'
   
-  // Configuration de base commune
+  // Common basic configuration
   const baseConfig = {
     plugins: [imba()],
     build: {
@@ -31,13 +31,12 @@ export default defineConfig(({ command, mode }) => {
       extensions: ['.imba', '.js', '.json']
     },
     optimizeDeps: {
-      include: ['webextension-polyfill', 'turndown']
+      include: ['webextension-polyfill']
     }
   }
   
-  // Configuration spécifique selon le type de build
+  // Build for background and content scripts (IIFE, without bundled packages for Chrome compatibility)
   if (buildType === 'background' || buildType === 'content') {
-    // Build IIFE pour background et content scripts
     return {
       ...baseConfig,
       plugins: [...baseConfig.plugins, webExtensionPlugin(browser, buildType)],
@@ -58,7 +57,7 @@ export default defineConfig(({ command, mode }) => {
     }
   }
   
-  // Build ES pour l'UI (popup, options) - permet le code-splitting
+  // ES Build for UI (popup, options)
   return {
     ...baseConfig,
     plugins: [...baseConfig.plugins, webExtensionPlugin(browser, 'ui')],
@@ -70,7 +69,7 @@ export default defineConfig(({ command, mode }) => {
           options: resolve(__dirname, 'src/options/options.html')
         },
         output: {
-          format: 'es', // ES module pour l'UI (supporté par les extensions modernes)
+          format: 'es', // ES module for UI (supported by modern extensions)
           inlineDynamicImports: false,
           entryFileNames: 'assets/[name].js',
           chunkFileNames: 'assets/chunks/[name].[hash].js',
