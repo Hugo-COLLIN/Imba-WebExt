@@ -83,14 +83,7 @@ async function main() {
       // Mode watch : lancer les 3 builds en parallèle
       console.log('🔄 Starting watch mode for all builds...\n')
       
-      // Premier build séquentiel pour initialiser
-      await runViteBuild('background', true)
-      await runViteBuild('content', true)
-      await runViteBuild('ui', true)
-      
-      console.log('\n✅ Initial build completed, starting watchers...\n')
-      
-      // Puis lancer les watchers en parallèle
+      // Launch the 3 watchers in parallel
       await Promise.all([
         runViteBuild('background'),
         runViteBuild('content'),
