@@ -50,11 +50,9 @@ export default defineConfig(({ command, mode }) => {
           output: {
             format: 'iife', // IIFE fonctionne avec une seule entrée
             entryFileNames: '[name].js',
-            globals: {
-              'webextension-polyfill': 'browser'
-            }
+            // No globals
           },
-          external: ['webextension-polyfill'] // Externaliser le polyfill
+          // DO NOT outsource packages
         }
       }
     }
