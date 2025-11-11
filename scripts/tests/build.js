@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, watch } from 'fs';
 import { join, dirname, relative } from 'path';
 import { spawn } from 'child_process';
+import { compile } from 'imba/compiler';
 
 const testDir = 'test';
 const outDir = 'test.local';
@@ -35,62 +36,34 @@ function ensureDir(filePath) {
 function transpileImba(inputPath, outputPath) {
   console.log(`Transpiling: ${inputPath}`);
   
-  const source = readFileSync(inputPath, 'utf8');
-  const lines = source.split('\n');
-  const output = [];
-  const indentStack = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i];
-    const originalLine = line;
+  try {
+    const source = readFileSync(inputPath, 'utf8');
     
-    // Mesure l'indentation (tabs ou espaces)
-    const indentMatch = line.match(/^(\t+| +)/);
-    const currentIndent = indentMatch ? indentMatch[0].length : 0;
+    // Utilise le compilateur Imba
+    const result = compile(source, {
+      filename: inputPath,
+      sourcePath: inputPath,
+      format: 'esm',
+      platform: 'node',
+      sourcemap: false,
+      imbaPath: 'imba'
+    });
     
-    // Ferme les blocs si l'indentation diminue
-    while (indentStack.length > 0 && indentStack[indentStack.length - 1] >= currentIndent) {
-      const prevIndent = indentStack.pop();
-      output.push(' '.repeat(prevIndent) + '});');
-    }
+    // Récupère le code JavaScript généré
+    const jsCode = result.js || result.toString();
     
-    // Transforme describe 'text' do
-    if (line.match(/describe\s+['"]([^'"]+)['"]\s+do\s*$/)) {
-      line = line.replace(/describe\s+'([^']+)'\s+do\s*$/, "describe('$1', () => {");
-      line = line.replace(/describe\s+"([^"]+)"\s+do\s*$/, 'describe("$1", () => {');
-      indentStack.push(currentIndent);
-    }
-    // Transforme test 'text' do
-    else if (line.match(/test\s+['"]([^'"]+)['"]\s+do\s*$/)) {
-      line = line.replace(/test\s+'([^']+)'\s+do\s*$/, "test('$1', () => {");
-      line = line.replace(/test\s+"([^"]+)"\s+do\s*$/, 'test("$1", () => {');
-      indentStack.push(currentIndent);
-    }
-    // Nettoie les ! des assertions
-    else {
-      line = line.replace(/\.toBeDefined!/g, '.toBeDefined()');
-      line = line.replace(/\.toBeArray!/g, '.toBeArray()');
-    }
+    ensureDir(outputPath);
+    writeFileSync(outputPath, jsCode, 'utf8');
+    console.log(`  ✓ Written to: ${outputPath}`);
     
-    // Ajoute la ligne transformée
-    if (line.trim()) {
-      output.push(line);
-    } else if (originalLine.trim() === '') {
-      output.push(''); // Garde les lignes vides
+    return true;
+  } catch (error) {
+    console.error(`  ✗ Error transpiling ${inputPath}:`, error.message);
+    if (error.stack) {
+      console.error(error.stack);
     }
+    return false;
   }
-  
-  // Ferme tous les blocs restants
-  while (indentStack.length > 0) {
-    const indent = indentStack.pop();
-    output.push(' '.repeat(indent) + '});');
-  }
-  
-  const transpiled = output.join('\n');
-  
-  ensureDir(outputPath);
-  writeFileSync(outputPath, transpiled, 'utf8');
-  console.log(`  ✓ Written to: ${outputPath}`);
 }
 
 // Compile tous les fichiers
@@ -104,21 +77,25 @@ function buildAll() {
   
   console.log(`Found ${imbaFiles.length} test file(s)\n`);
   
+  let allSuccess = true;
+  
   for (const file of imbaFiles) {
     const relativePath = relative(testDir, file);
     const outFile = join(outDir, relativePath).replace('.imba', '.js');
     
-    try {
-      transpileImba(file, outFile);
-    } catch (error) {
-      console.error(`Failed to transpile ${file}:`, error.message);
-      console.error(error.stack);
-      return false;
+    const success = transpileImba(file, outFile);
+    if (!success) {
+      allSuccess = false;
     }
   }
   
-  console.log('\n✓ All tests transpiled successfully');
-  return true;
+  if (allSuccess) {
+    console.log('\n✓ All tests transpiled successfully');
+  } else {
+    console.log('\n✗ Some tests failed to transpile');
+  }
+  
+  return allSuccess;
 }
 
 // Mode watch
