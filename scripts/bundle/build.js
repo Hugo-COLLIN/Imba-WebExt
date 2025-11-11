@@ -11,8 +11,15 @@ const __dirname = dirname(__filename)
 // Récupérer les arguments
 const args = process.argv.slice(2)
 const isWatch = args.includes('--watch')
-const mode = args.includes('--mode=production') ? 'production' : 'development'
-const browser = process.env.BROWSER || 'chrome'
+
+// Extract mode
+const modeArg = args.find(arg => arg.startsWith('--mode='))
+const mode = modeArg ? modeArg.split('=')[1] : 'development'
+
+// Extract browser (prioritize flag over env variable)
+const browserArg = args.find(arg => arg.startsWith('--browser='))
+const browser = browserArg ? browserArg.split('=')[1] : (process.env.BROWSER || 'chrome')
+
 
 console.log(`\n🎯 Starting ${isWatch ? 'watch' : 'build'} for ${browser} (${mode})\n`)
 
