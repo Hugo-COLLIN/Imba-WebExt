@@ -72,10 +72,11 @@ function adaptManifestForFirefox(manifest) {
   
   // Ajouter l'ID obligatoire pour Firefox
   if (!manifest.browser_specific_settings) {
+    console.warn("⚠️  Please add a Firefox ID in your manifest, a temporary one is provided as an example")
     manifest.browser_specific_settings = {
       gecko: {
-        id: "save-web-content@example.com",
-        strict_min_version: "57.0"
+        id: "extension@example.com",
+        strict_min_version: "109.0"
       }
     }
   }
