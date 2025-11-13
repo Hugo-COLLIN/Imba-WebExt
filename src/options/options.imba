@@ -19,14 +19,17 @@ tag OptionsApp
 		settings = {...defaultSettings, ...result.settings} if result.settings
 
 	def saveSettings
-		browser.storage.sync.set({settings: settings}) do
+		try
+			await browser.storage.sync.set({settings: settings})
 			console.log "Settings saved!"
-			browser.runtime.sendMessage({ message: "Saved settings", type: "PING" })
-				.then(
-					do(response) console.log "Message from the background script: {response.message}",
-					do(error)	 console.log "Error: ${error}"
-				)
+			const response = await browser.runtime.sendMessage({ 
+				message: "Saved settings", 
+				type: "PING" 
+			})
+			console.log "Message from the background script: {response.message}"
 			showSavedMessage!
+		catch error
+			console.log "Error: {error}"
 
 	def showSavedMessage
 		showSaved = yes
