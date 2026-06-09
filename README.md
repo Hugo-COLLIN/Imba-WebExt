@@ -7,7 +7,7 @@
 ## Compilation
 Base command:
 ```sh
-bun run compile.imba
+bun run build.imba
 ```
 Flags:
 - Target: `--chrome` or `--firefox`

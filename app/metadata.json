@@ -1,10 +1,8 @@
 {
-  "common": {
-    "name": "Example",
-    "version": "1.0",
-    "description": "Description",
-    "permissions": ["tabs", "downloads"]
-  },
+  "name": "Example",
+  "version": "1.0",
+  "description": "Description",
+  "permissions": ["tabs", "downloads"],
   "chrome": {
     "manifest_version": 3,
     "action": {
