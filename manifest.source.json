@@ -1,0 +1,26 @@
+{
+  "common": {
+    "name": "Example",
+    "version": "1.0",
+    "description": "Description",
+    "permissions": ["tabs", "downloads"]
+  },
+  "chrome": {
+    "manifest_version": 3,
+    "action": {
+      "default_title": "Action title"
+    },
+    "background": {
+      "service_worker": "background.js"
+    }
+  },
+  "firefox": {
+    "manifest_version": 2,
+    "browser_action": {
+      "default_title": "Action title"
+    },
+    "background": {
+      "scripts": ["background.js"]
+    }
+  }
+}
