@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs'
+import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync } from 'fs'
 
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
 # scalar values from `source` override `target`.
@@ -14,7 +14,7 @@ def smartMerge(target, source)
 			result[key] = value
 	return result
 
-# Remove keys with null / undefined / empty objects (récursive)
+# Remove keys with null / undefined / empty objects (recursive)
 def cleanEmptyProperties(obj)
 	for own key, value of obj
 		if value == null
@@ -27,12 +27,13 @@ def cleanEmptyProperties(obj)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
+const watchFlag = watchMode ? ' --watch' : ''
 
 console.log "Début de la compilation pour {browser}{watchMode ? ' (mode watch)' : ''}..."
 
-# 2. Create target directory if it doesn't exist
-if !existsSync('out')
-	mkdirSync('out')
+# 2. Recreate output directory from scratch (removes stale files)
+rmSync('out', recursive: true, force: true)
+mkdirSync('out')
 
 # 3. Generate manifest (in watch mode, the compile below blocks forever)
 console.log "-> Génération du manifest.json..."
@@ -63,11 +64,13 @@ catch err
 	console.error "Erreur lors de la création du manifest :", err.message
 	process.exit(1)
 
-# 4. Compile background script (adds --watch if requested)
+# 4. Compile Imba entrypoints sequentially
+# TODO Note: --watch only works for the first entrypoint (execSync is blocking)
 console.log "-> Compilation des scripts Imba..."
 try
-	const watchFlag = watchMode ? ' --watch' : ''
-	execSync("bimba app/background.imba --outdir out{watchFlag}", stdio: 'inherit')
+	const entries = ['background']
+	for entry of entries
+		execSync("bimba app/{entry}.imba --outdir out{watchFlag}", stdio: 'inherit')
 catch err
 	console.error "Erreur lors de la compilation :", err.message
 	process.exit(1)
