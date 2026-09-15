@@ -23,11 +23,12 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
-# 1. Parse flags (--chrome / --firefox / --watch / --prod)
+# 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
-const prodMode = args.includes('--prod')
+const packMode = args.includes('--pack')
+const prodMode = packMode or args.includes('--prod')
 
 # Flags for bimba:
 # - dev: readable code (--no-minify) + external sourcemaps
@@ -90,3 +91,17 @@ try
 catch err
 	console.error "Erreur lors de la compilation :", err.message
 	process.exit(1)
+
+# 6. Package the extension into releases/ (--pack)
+# Name/version read from the generated manifest: only reliable source of truth
+if packMode and !watchMode
+	mkdirSync('releases') unless existsSync('releases')
+	const m = JSON.parse(readFileSync('out/manifest.json', 'utf8'))
+	const archiveName = "{m.name}_{m.version}_{browser}.zip"
+	try
+		# zip from out/ so manifest.json is at the root of the archive
+		execSync("cd out && zip -r ../releases/{archiveName} .", stdio: 'inherit')
+		console.log "-> Archive releases/{archiveName} créée !"
+	catch err
+		console.error "Erreur lors de l'archivage (zip est-il installé ?) :", err.message
+		process.exit(1)
