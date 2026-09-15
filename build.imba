@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync } from 'fs'
+import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync } from 'fs'
 
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
 # scalar values from `source` override `target`.
@@ -35,7 +35,12 @@ console.log "Début de la compilation pour {browser}{watchMode ? ' (mode watch)'
 rmSync('out', recursive: true, force: true)
 mkdirSync('out')
 
-# 3. Generate manifest (in watch mode, the compile below blocks forever)
+# 3. Copy static assets (icons, images...)
+if existsSync('app/assets')
+	cpSync('app/assets', 'out/assets', recursive: true)
+	console.log "-> Assets copiés dans out/assets/"
+
+# 4. Generate manifest (in watch mode, the compile below blocks forever)
 console.log "-> Génération du manifest.json..."
 try
 	const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
@@ -64,7 +69,7 @@ catch err
 	console.error "Erreur lors de la création du manifest :", err.message
 	process.exit(1)
 
-# 4. Compile Imba entrypoints sequentially
+# 5. Compile Imba entrypoints sequentially
 # TODO Note: --watch only works for the first entrypoint (execSync is blocking)
 console.log "-> Compilation des scripts Imba..."
 try
