@@ -44,7 +44,8 @@ unless prodMode
 
 if testMode
 	# === TEST MODE ===
-	# Transpile all *.test.imba to test.local/, then bun test
+	# Transpile all *.test.imba from the repo to test.local/, then bun test
+	# Note: a new .test.imba added during the watch is not detected.
 	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
@@ -117,13 +118,18 @@ else
 		console.error "Erreur lors de la création du manifest :", err.message
 		process.exit(1)
 
-	# 5. Compile Imba entrypoints sequentially
-	# TODO Note: --watch only works for the first entrypoint (execSync is blocking)
+	# 5. Compile Imba entrypoints
+	# Note: bimba only monitors the entrypoint folder; a modification of metadata.json or app/assets/ requires a manual restart.
 	console.log "-> Compilation des scripts Imba..."
 	try
 		const entries = ['background']
-		for entry of entries
-			execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
+		if watchMode
+			for entry of entries
+				spawn("bimba \"app/{entry}.imba\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
+			process.stdin.resume()
+		else
+			for entry of entries
+				execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
 	catch err
 		console.error "Erreur lors de la compilation :", err.message
 		process.exit(1)
