@@ -14,6 +14,15 @@ def smartMerge(target, source)
 			result[key] = value
 	return result
 
+# Remove keys with null / undefined / empty objects (récursive)
+def cleanEmptyProperties(obj)
+	for own key, value of obj
+		if value == null
+			delete obj[key]
+		elif value isa Object and !Array.isArray(value)
+			cleanEmptyProperties(value)
+			delete obj[key] if Object.keys(value).length == 0
+
 # 1. Parse flags (--chrome / --firefox / --watch)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
@@ -28,11 +37,25 @@ if !existsSync('out')
 # 3. Generate manifest (in watch mode, the compile below blocks forever)
 console.log "-> Génération du manifest.json..."
 try
-	const rawManifest = readFileSync('app/metadata.json', 'utf8')
-	const sourceData = JSON.parse(rawManifest)
+	const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
 	const { chrome, firefox, ...common } = sourceData
 
+	# package.json is optional: read only if it exists
+	let pkg = {}
+	if existsSync('package.json')
+		pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+
+	# Fallbacks from package.json or default values if missing from metadata.json
+	common.name = common.name or pkg.name or 'my-extension'
+	common.version = common.version or pkg.version or '0.0.1'
+	common.description = common.description or pkg.description or ''
+
 	const finalManifest = smartMerge(common, sourceData[browser])
+	cleanEmptyProperties(finalManifest)
+
+	# Firefox: a Gecko ID is required to sign on AMO
+	if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
+		console.warn "⚠️  Aucun browser_specific_settings.gecko.id défini : requis pour publier sur addons.mozilla.org"
 
 	writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
 	console.log "-> Manifest {browser} généré avec succès dans out/manifest.json!"
