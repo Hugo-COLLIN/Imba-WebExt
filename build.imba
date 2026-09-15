@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync } from 'fs'
+import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync } from 'fs'
 
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
 # scalar values from `source` override `target`.
@@ -23,12 +23,13 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
-# 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack)
+# 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack / --test)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
 const packMode = args.includes('--pack')
 const prodMode = packMode or args.includes('--prod')
+const testMode = args.includes('--test')
 
 # Flags for bimba:
 # - dev: readable code (--no-minify) + external sourcemaps
@@ -41,6 +42,30 @@ unless prodMode or browser == 'firefox'
 unless prodMode
 	buildFlags += ' --sourcemap external'
 
+# === TEST MODE ===
+# Transpile all *.test.imba from the repo to test.local/, then bun test
+if testMode
+	mkdirSync('test.local', recursive: true)
+
+	const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
+	const testFiles = readdirSync('.', recursive: true).filter do(f)
+		const path = String(f)
+		path.endsWith('.test.imba') and !ignoredDirs.some do(dir) path.startsWith(dir)
+
+	if testFiles.length == 0
+		console.log "Aucun fichier .test.imba trouvé"
+		process.exit(0)
+
+	console.log "-> Transpilation de {testFiles.length} fichier(s) de test..."
+	for file of testFiles
+		execSync("imbac --platform node -m -o test.local {file}", stdio: 'inherit')
+
+	unless watchMode
+		console.log "-> Exécution des tests..."
+		execSync("bun test test.local", stdio: 'inherit')
+	process.exit(0)
+
+# === BUILD EXTENSION MODE ===
 console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
 
 # 2. Recreate output directory from scratch (removes stale files)
