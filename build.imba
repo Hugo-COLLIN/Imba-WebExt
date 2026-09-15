@@ -45,6 +45,7 @@ unless prodMode
 # === TEST MODE ===
 # Transpile all *.test.imba from the repo to test.local/, then bun test
 if testMode
+	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
 	const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
@@ -58,7 +59,9 @@ if testMode
 
 	console.log "-> Transpilation de {testFiles.length} fichier(s) de test..."
 	for file of testFiles
-		execSync("imbac --platform node -m -o test.local {file}", stdio: 'inherit')
+		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
+		mkdirSync("test.local/{dir}", recursive: true)
+		execSync("imbac --platform node -m -o test.local/{dir} {file}", stdio: 'inherit')
 
 	unless watchMode
 		console.log "-> Exécution des tests..."
