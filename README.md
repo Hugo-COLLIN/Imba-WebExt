@@ -10,9 +10,16 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 ```
 
 ## Compilation
-Base command:
+Base commands:
 ```sh
-bun run build.imba
+bun run build.imba                 # dev chrome
+bun run build.imba --firefox       # dev firefox
+bun run build.imba --prod          # prod chrome (minifié)
+bun run build.imba --watch         # dev avec watch
 ```
 Flags:
-- Target: `--chrome` or `--firefox`
+- Target: `--chrome` or `--firefox` (default: chrome)
+- Purpose: `--prod` (default: dev)
+- Refresh: `--watch` (default: 1-time compilation)
+
+

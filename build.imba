@@ -23,13 +23,24 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
-# 1. Parse flags (--chrome / --firefox / --watch)
+# 1. Parse flags (--chrome / --firefox / --watch / --prod)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
-const watchFlag = watchMode ? ' --watch' : ''
+const prodMode = args.includes('--prod')
 
-console.log "Début de la compilation pour {browser}{watchMode ? ' (mode watch)' : ''}..."
+# Flags for bimba:
+# - dev: readable code (--no-minify) + external sourcemaps
+# - prod: minified (bimba default), except Firefox (AMO review requires readable code)
+let buildFlags = ' --target browser'
+if watchMode
+	buildFlags += ' --watch'
+unless prodMode or browser == 'firefox'
+	buildFlags += ' --no-minify'
+unless prodMode
+	buildFlags += ' --sourcemap external'
+
+console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
 
 # 2. Recreate output directory from scratch (removes stale files)
 rmSync('out', recursive: true, force: true)
@@ -75,7 +86,7 @@ console.log "-> Compilation des scripts Imba..."
 try
 	const entries = ['background']
 	for entry of entries
-		execSync("bimba app/{entry}.imba --outdir out{watchFlag}", stdio: 'inherit')
+		execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
 catch err
 	console.error "Erreur lors de la compilation :", err.message
 	process.exit(1)
