@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync } from 'fs'
 
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
@@ -42,9 +42,9 @@ unless prodMode or browser == 'firefox'
 unless prodMode
 	buildFlags += ' --sourcemap external'
 
-# === TEST MODE ===
-# Transpile all *.test.imba from the repo to test.local/, then bun test
 if testMode
+	# === TEST MODE ===
+	# Transpile all *.test.imba to test.local/, then bun test
 	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
@@ -61,75 +61,83 @@ if testMode
 	for file of testFiles
 		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
 		mkdirSync("test.local/{dir}", recursive: true)
-		execSync("imbac --platform node -m -o test.local/{dir} {file}", stdio: 'inherit')
+		execSync("imbac --platform node -m -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit')
 
-	unless watchMode
+	if watchMode
+		console.log "-> Watch : un watcher imbac par fichier + bun test --watch"
+		for file of testFiles
+			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
+			spawn("imbac --platform node -m -w -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit', shell: true)
+		spawn("bun test --watch test.local", stdio: 'inherit', shell: true)
+		console.log "\n👀 Watch mode actif (Ctrl+C pour arrêter)..."
+		process.stdin.resume()
+	else
 		console.log "-> Exécution des tests..."
 		execSync("bun test test.local", stdio: 'inherit')
-	process.exit(0)
+		process.exit(0)
+else
+	# === BUILD EXTENSION MODE ===
+	console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
 
-# === BUILD EXTENSION MODE ===
-console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
+	# 2. Recreate output directory from scratch (removes stale files)
+	rmSync('out', recursive: true, force: true)
+	mkdirSync('out')
 
-# 2. Recreate output directory from scratch (removes stale files)
-rmSync('out', recursive: true, force: true)
-mkdirSync('out')
+	# 3. Copy static assets (icons, images...)
+	if existsSync('app/assets')
+		cpSync('app/assets', 'out/assets', recursive: true)
+		console.log "-> Assets copiés dans out/assets/"
 
-# 3. Copy static assets (icons, images...)
-if existsSync('app/assets')
-	cpSync('app/assets', 'out/assets', recursive: true)
-	console.log "-> Assets copiés dans out/assets/"
-
-# 4. Generate manifest (in watch mode, the compile below blocks forever)
-console.log "-> Génération du manifest.json..."
-try
-	const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
-	const { chrome, firefox, ...common } = sourceData
-
-	# package.json is optional: read only if it exists
-	let pkg = {}
-	if existsSync('package.json')
-		pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-
-	# Fallbacks from package.json or default values if missing from metadata.json
-	common.name = common.name or pkg.name or 'my-extension'
-	common.version = common.version or pkg.version or '0.0.1'
-	common.description = common.description or pkg.description or ''
-
-	const finalManifest = smartMerge(common, sourceData[browser])
-	cleanEmptyProperties(finalManifest)
-
-	# Firefox: a Gecko ID is required to sign on AMO
-	if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
-		console.warn "⚠️  Aucun browser_specific_settings.gecko.id défini : requis pour publier sur addons.mozilla.org"
-
-	writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
-	console.log "-> Manifest {browser} généré avec succès dans out/manifest.json!"
-catch err
-	console.error "Erreur lors de la création du manifest :", err.message
-	process.exit(1)
-
-# 5. Compile Imba entrypoints sequentially
-# TODO Note: --watch only works for the first entrypoint (execSync is blocking)
-console.log "-> Compilation des scripts Imba..."
-try
-	const entries = ['background']
-	for entry of entries
-		execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
-catch err
-	console.error "Erreur lors de la compilation :", err.message
-	process.exit(1)
-
-# 6. Package the extension into releases/ (--pack)
-# Name/version read from the generated manifest: only reliable source of truth
-if packMode and !watchMode
-	mkdirSync('releases') unless existsSync('releases')
-	const m = JSON.parse(readFileSync('out/manifest.json', 'utf8'))
-	const archiveName = "{m.name}_{m.version}_{browser}.zip"
+	# 4. Generate manifest (in watch mode, the compile below blocks forever)
+	console.log "-> Génération du manifest.json..."
 	try
-		# zip from out/ so manifest.json is at the root of the archive
-		execSync("cd out && zip -r ../releases/{archiveName} .", stdio: 'inherit')
-		console.log "-> Archive releases/{archiveName} créée !"
+		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
+		const { chrome, firefox, ...common } = sourceData
+
+		# package.json is optional: read only if it exists
+		let pkg = {}
+		if existsSync('package.json')
+			pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+
+		# Fallbacks from package.json or default values if missing from metadata.json
+		common.name = common.name or pkg.name or 'my-extension'
+		common.version = common.version or pkg.version or '0.0.1'
+		common.description = common.description or pkg.description or ''
+
+		const finalManifest = smartMerge(common, sourceData[browser])
+		cleanEmptyProperties(finalManifest)
+
+		# Firefox: a Gecko ID is required to sign on AMO
+		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
+			console.warn "⚠️  Aucun browser_specific_settings.gecko.id défini : requis pour publier sur addons.mozilla.org"
+
+		writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
+		console.log "-> Manifest {browser} généré avec succès dans out/manifest.json!"
 	catch err
-		console.error "Erreur lors de l'archivage (zip est-il installé ?) :", err.message
+		console.error "Erreur lors de la création du manifest :", err.message
 		process.exit(1)
+
+	# 5. Compile Imba entrypoints sequentially
+	# TODO Note: --watch only works for the first entrypoint (execSync is blocking)
+	console.log "-> Compilation des scripts Imba..."
+	try
+		const entries = ['background']
+		for entry of entries
+			execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
+	catch err
+		console.error "Erreur lors de la compilation :", err.message
+		process.exit(1)
+
+	# 6. Package the extension into releases/ (--pack)
+	# Name/version read from the generated manifest: only reliable source of truth
+	if packMode and !watchMode
+		mkdirSync('releases') unless existsSync('releases')
+		const m = JSON.parse(readFileSync('out/manifest.json', 'utf8'))
+		const archiveName = "{m.name}_{m.version}_{browser}.zip"
+		try
+			# zip from out/ so manifest.json is at the root of the archive
+			execSync("cd out && zip -r ../releases/{archiveName} .", stdio: 'inherit')
+			console.log "-> Archive releases/{archiveName} créée !"
+		catch err
+			console.error "Erreur lors de l'archivage (zip est-il installé ?) :", err.message
+			process.exit(1)
