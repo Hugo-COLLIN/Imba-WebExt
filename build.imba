@@ -68,17 +68,17 @@ const testMode = args.includes('--test')
 
 if testMode
 	# === TEST MODE ===
-	# Transpile all *.test.imba from the repo to test.local/ (count then summarize syntax failures if any), then bun test
+	# Transpile all *.test.imba from the repo to test.local/ (counts then summarizes syntax failures if any), then bun test
 	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
 	const testFiles = scanFiles('.test.imba')
 
 	if testFiles.length == 0
-		console.log "Aucun fichier .test.imba trouvé"
+		console.log "No .test.imba file found"
 		process.exit(0)
 
-	console.log "-> Transpilation de {testFiles.length} fichier(s) de test..."
+	console.log "-> Transpiling {testFiles.length} test file(s)..."
 	let failures = 0
 	for file of testFiles
 		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
@@ -104,7 +104,11 @@ if testMode
 		process.stdin.resume()
 	else
 		console.log "-> Running tests..."
-		execSync("bun test test.local", stdio: 'inherit')
+		try
+			execSync("bun test test.local", stdio: 'inherit')
+		catch err
+			# bun test already printed the failure summary; just propagate its exit code
+			process.exit(err.status or 1)
 		process.exit(0)
 else
 	# === BUILD EXTENSION MODE ===
