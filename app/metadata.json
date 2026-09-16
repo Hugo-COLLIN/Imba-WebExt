@@ -3,6 +3,11 @@
   "version": "1.0",
   "description": "Description",
   "permissions": ["tabs", "downloads"],
+  "content_scripts": [
+    {
+      "js": ["content.js"]
+    }
+  ],
   "chrome": {
     "manifest_version": 3,
     "action": {
