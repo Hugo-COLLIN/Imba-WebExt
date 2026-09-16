@@ -1,0 +1,17 @@
+{
+    "scripts": {
+        "dev": "bun run build.imba --watch",
+        "dev:firefox": "bun run build.imba --firefox --watch",
+        "build": "bun run build.imba",
+        "build:firefox": "bun run build.imba --firefox",
+        "pack": "bun run build.imba --pack",
+        "pack:firefox": "bun run build.imba --firefox --pack",
+        "release": "bun run pack && bun run pack:firefox",
+        "test": "bun run build.imba --test",
+        "test:watch": "bun run build.imba --test --watch"
+    },
+    "devDependencies": {
+        "imba": "^2.0.0-alpha.253",
+        "bimba-cli": "^0.7.39"
+    }
+}
