@@ -105,7 +105,9 @@ else
 	let buildFlags = ' --target browser'
 	if watchMode
 		buildFlags += ' --watch'
-	unless prodMode or browser == 'firefox'
+	# Add --no-minify in dev, and ALWAYS for Firefox (AMO review)
+	const minify = prodMode and browser != 'firefox'
+	unless minify
 		buildFlags += ' --no-minify'
 	unless prodMode
 		buildFlags += ' --sourcemap external'
