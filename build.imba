@@ -68,8 +68,7 @@ const testMode = args.includes('--test')
 
 if testMode
 	# === TEST MODE ===
-	# Transpile all *.test.imba from the repo to test.local/, then bun test
-	# Note: a new .test.imba added during the watch is not detected.
+	# Transpile all *.test.imba from the repo to test.local/ (count then summarize syntax failures if any), then bun test
 	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
@@ -80,21 +79,31 @@ if testMode
 		process.exit(0)
 
 	console.log "-> Transpilation de {testFiles.length} fichier(s) de test..."
+	let failures = 0
 	for file of testFiles
 		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
 		mkdirSync("test.local/{dir}", recursive: true)
-		execSync("imbac --platform node -m -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit')
+		try
+			execSync("imbac --platform node -m -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit')
+		catch err
+			failures += 1
+			console.error "✗ Transpilation failed: {file}"
+
+	if failures > 0
+		console.error "\n✗ {failures}/{testFiles.length} file(s) failed to transpile - fix the syntax and rerun"
+		process.exit(1)
 
 	if watchMode
-		console.log "-> Watch : un watcher imbac par fichier + bun test --watch"
+		console.log "-> Watch: one imbac watcher per file + bun test --watch"
+		console.log "   Note: a new .test.imba added during watch is not detected"
 		for file of testFiles
 			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
 			spawn("imbac --platform node -m -w -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit', shell: true)
 		spawn("bun test --watch test.local", stdio: 'inherit', shell: true)
-		console.log "\n👀 Watch mode actif (Ctrl+C pour arrêter)..."
+		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
 	else
-		console.log "-> Exécution des tests..."
+		console.log "-> Running tests..."
 		execSync("bun test test.local", stdio: 'inherit')
 		process.exit(0)
 else
