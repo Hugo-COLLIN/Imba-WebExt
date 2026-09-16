@@ -17,12 +17,12 @@
     "128": "assets/icons/icon128.png"
   },
   "options_ui": {
-    "page": "options/options.html"
+    "page": "options/options.imba"
   },
   "chrome": {
     "manifest_version": 3,
     "action": {
-      "default_popup": "popup/popup.html",
+      "default_popup": "popup/popup.imba",
       "default_title": "Action title",
       "default_icon": {
         "16": "assets/icons/icon16.png",
@@ -37,7 +37,7 @@
   "firefox": {
     "manifest_version": 2,
     "browser_action": {
-      "default_popup": "popup/popup.html",
+      "default_popup": "popup/popup.imba",
       "default_title": "Action title",
       "default_icon": {
         "16": "assets/icons/icon16.png",

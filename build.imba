@@ -23,8 +23,15 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
+# Generate the minimal HTML wrapper for an Imba page.
+# Styles are bundled into the JS by bimba, so no <style> link needed.
+def pageHtml(jsFile)
+	const fileName = jsFile.includes('/') ? jsFile.slice(jsFile.lastIndexOf('/') + 1) : jsFile
+	return '<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./' + fileName + '"></script>\n  </body>\n</html>\n'
+
 # Collect entrypoints from the source manifest (before browser merge).
-# Returns an array of { source, output } objects for .imba → .js conversion.
+# .imba pages get a compiled .js entry AND a generated wrapper .html.
+# Plain .html/.css entries are copied as-is.
 def collectEntries(sourceData)
 	const entries = []
 	const common = sourceData
@@ -60,18 +67,18 @@ def collectEntries(sourceData)
 
 	for page of pages
 		if page.endsWith('.imba')
-			# Imba 2 alpha does not output standalone .html from .imba views
-			# Treat as error: pages must be .html sources
-			console.error "✗ Page {page} must be a .html file, not .imba"
-			process.exit(1)
-		else if page.endsWith('.html')
+			const name = page.slice(0, -5)
+			entries.push({ source: "app/{page}", output: "{name}.js" })
+			entries.push({ wrapperHtml: "{name}.html", wrapperJs: "{name}.js" })
+		elif page.endsWith('.html')
 			entries.push({ source: "app/{page}", output: "{page}" })
 
 	return entries
 
-# Rewrite .imba references to .js in the merged manifest for final output
+# Rewrite .imba references in the merged manifest for final output:
+# entrypoints (.js/.css) and page wrappers (.html)
 def rewriteManifest(manifest)
-	if manifest.background and manifest.background.service_worker and manifest.background.service_worker.endsWith('.imba')
+	if manifest.background..service_worker..endsWith('.imba')
 		manifest.background.service_worker = manifest.background.service_worker.slice(0, -5) + '.js'
 
 	let bgIndex = 0
@@ -92,6 +99,20 @@ def rewriteManifest(manifest)
 				cs.css[cssIndex] = f.slice(0, -5) + '.css'
 			cssIndex++
 
+	# pages: .imba -> .html (we generate the wrapper)
+	for k of ['action', 'browser_action', 'side_panel']
+		if manifest[k]
+			if manifest[k].default_popup and manifest[k].default_popup.endsWith('.imba')
+				manifest[k].default_popup = manifest[k].default_popup.slice(0, -5) + '.html'
+			if manifest[k].default_page and manifest[k].default_page.endsWith('.imba')
+				manifest[k].default_page = manifest[k].default_page.slice(0, -5) + '.html'
+	if manifest.options_ui and manifest.options_ui.page and manifest.options_ui.page.endsWith('.imba')
+		manifest.options_ui.page = manifest.options_ui.page.slice(0, -5) + '.html'
+	if manifest.options_page and manifest.options_page.endsWith('.imba')
+		manifest.options_page = manifest.options_page.slice(0, -5) + '.html'
+	if manifest.devtools_page and manifest.devtools_page.endsWith('.imba')
+		manifest.devtools_page = manifest.devtools_page.slice(0, -5) + '.html'
+
 	return manifest
 
 const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
@@ -101,6 +122,36 @@ def scanFiles(suffix)
 	readdirSync('.', recursive: true).filter do(f)
 		const path = String(f)
 		path.endsWith(suffix) and !ignoredDirs.some do(dir) path.startsWith(dir)
+
+# Ensure the parent folder of an out/ path exists
+def ensureOutDir(output)
+	if output.includes('/')
+		mkdirSync("out/{output.slice(0, output.lastIndexOf('/'))}", recursive: true)
+
+# Run bimba for one entry (outdir preserves the subfolder structure)
+def runBimba(entry, buildFlags, async)
+	const outDir = entry.output.includes('/') ? "out/{entry.output.slice(0, entry.output.lastIndexOf('/'))}" : 'out'
+	const quotedFlags = buildFlags
+	if async
+		spawn("bimba \"{entry.source}\" --outdir \"{outDir}\"{quotedFlags}", stdio: 'inherit', shell: true)
+	else
+		execSync("bimba \"{entry.source}\" --outdir \"{outDir}\"{quotedFlags}", stdio: 'inherit')
+
+# Process one entry: compile .imba (js), generate wrapper .html, or copy asset
+def processEntry(entry, buildFlags, async)
+	if entry.wrapperHtml
+		ensureOutDir(entry.wrapperHtml)
+		writeFileSync("out/{entry.wrapperHtml}", pageHtml(entry.wrapperJs))
+	elif entry.output.endsWith('.js')
+		runBimba(entry, buildFlags, async)
+	elif entry.output.endsWith('.css') and existsSync(entry.source)
+		ensureOutDir(entry.output)
+		cpSync(entry.source, "out/{entry.output}")
+	elif existsSync(entry.source)
+		ensureOutDir(entry.output)
+		cpSync(entry.source, "out/{entry.output}")
+	else
+		console.warn "✗ Entry source not found: {entry.source or entry.wrapperJs}"
 
 
 # 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack / --test)
@@ -170,21 +221,21 @@ else
 	unless prodMode
 		buildFlags += ' --sourcemap external'
 
-	console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
+	console.log "== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) =="
 
 	# 2. Recreate output directory from scratch (removes stale files)
 	rmSync('out', recursive: true, force: true)
 	mkdirSync('out')
 
-	# 3. Copy static assets (icons, images...)
+	# 3. Copy static assets
 	if existsSync('app/assets')
 		cpSync('app/assets', 'out/assets', recursive: true)
-		console.log "-> Assets copiés dans out/assets/"
+		console.log "-> Assets copied to out/assets/"
 
-	# 4. Generate manifest (in watch mode, the compile below blocks forever)
+	# 4. Generate manifest
 	let finalManifest = {}
 	let entries = []
-	console.log "-> Génération du manifest.json..."
+	console.log "-> Generating manifest..."
 	try
 		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
 		const { chrome, firefox, ...common } = sourceData
@@ -204,7 +255,7 @@ else
 
 		# Firefox: a Gecko ID is required to sign on AMO
 		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
-			console.warn "⚠️  Aucun browser_specific_settings.gecko.id défini : requis pour publier sur addons.mozilla.org"
+			console.warn "⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org"
 
 		# Collect entrypoints BEFORE rewriting manifest (need .imba sources)
 		entries = collectEntries(finalManifest)
@@ -213,34 +264,24 @@ else
 		finalManifest = rewriteManifest(finalManifest)
 
 		writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
-		console.log "-> Manifest {browser} généré avec succès dans out/manifest.json!"
+		console.log "-> Manifest {browser} written to out/manifest.json"
 	catch err
-		console.error "Erreur lors de la création du manifest :", err.message
+		console.error "Manifest generation failed:", err.message
 		process.exit(1)
 
-	# 5. Compile Imba entrypoints
-	# Note: bimba only monitors the entrypoint folder; a modification of metadata.json or app/assets/ requires a manual restart.
-	console.log "-> Compilation des scripts Imba..."
+	# 5. Compile / copy entries
+	console.log "-> Processing {entries.length} entr(ies)..."
 	try
 		if entries.length == 0
-			console.warn "Aucun entrypoint déclaré dans le manifest"
+			console.warn "No entrypoint declared in the manifest"
 			process.exit(0)
 
-		if watchMode
-			for entry of entries
-				if entry.output.endsWith('.js')
-					spawn("bimba \"{entry.source}\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
-				else
-					cpSync(entry.source, "out/{entry.output}")
-			process.stdin.resume()
-		else
-			for entry of entries
-				if entry.output.endsWith('.js')
-					execSync("bimba \"{entry.source}\" --outdir out{buildFlags}", stdio: 'inherit')
-				else
-					cpSync(entry.source, "out/{entry.output}")
+		for entry of entries
+			processEntry(entry, buildFlags, watchMode)
+
+		process.stdin.resume() if watchMode
 	catch err
-		console.error "Erreur lors de la compilation :", err.message
+		console.error "Compilation failed:", err.message
 		process.exit(1)
 
 	# 6. Package the extension into releases/ (--pack)
@@ -252,7 +293,7 @@ else
 		try
 			# zip from out/ so manifest.json is at the root of the archive
 			execSync("cd out && zip -r ../releases/{archiveName} .", stdio: 'inherit')
-			console.log "-> Archive releases/{archiveName} créée !"
+			console.log "-> Archive releases/{archiveName} created"
 		catch err
-			console.error "Erreur lors de l'archivage (zip est-il installé ?) :", err.message
+			console.error "Archiving failed (is zip installed?) :", err.message
 			process.exit(1)
