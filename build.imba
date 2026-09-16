@@ -23,6 +23,41 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
+# Collect entrypoints from the generated manifest
+def collectEntries(manifest)
+	const entries = []
+
+	if manifest.background..service_worker
+		entries.push(manifest.background.service_worker)
+	for s of (manifest.background..scripts or [])
+		entries.push(s)
+	for cs of (manifest.content_scripts or [])
+		for f of (cs.js or []).concat(cs.css or [])
+			entries.push(f)
+
+	const pages = []
+	for k of ['action', 'browser_action', 'side_panel']
+		const page = manifest[k]..default_popup or manifest[k]..default_page
+		pages.push(page) if page
+	pages.push(manifest.options_ui..page) if manifest.options_ui..page
+	pages.push(manifest.options_page) if manifest.options_page
+	pages.push(manifest.devtools_page) if manifest.devtools_page
+
+	for page of pages
+		const name = page.slice(0, page.lastIndexOf('.'))
+		entries.push("{name}.js") if existsSync("app/{name}.imba")
+
+	return [...new Set(entries)]
+
+const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
+
+# Recursive scan of the repo for a given suffix (used by test mode)
+def scanFiles(suffix)
+	readdirSync('.', recursive: true).filter do(f)
+		const path = String(f)
+		path.endsWith(suffix) and !ignoredDirs.some do(dir) path.startsWith(dir)
+
+
 # 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack / --test)
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
@@ -31,17 +66,6 @@ const packMode = args.includes('--pack')
 const prodMode = packMode or args.includes('--prod')
 const testMode = args.includes('--test')
 
-# Flags for bimba:
-# - dev: readable code (--no-minify) + external sourcemaps
-# - prod: minified (bimba default), except Firefox (AMO review requires readable code)
-let buildFlags = ' --target browser'
-if watchMode
-	buildFlags += ' --watch'
-unless prodMode or browser == 'firefox'
-	buildFlags += ' --no-minify'
-unless prodMode
-	buildFlags += ' --sourcemap external'
-
 if testMode
 	# === TEST MODE ===
 	# Transpile all *.test.imba from the repo to test.local/, then bun test
@@ -49,10 +73,7 @@ if testMode
 	rmSync('test.local', recursive: true, force: true)
 	mkdirSync('test.local', recursive: true)
 
-	const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
-	const testFiles = readdirSync('.', recursive: true).filter do(f)
-		const path = String(f)
-		path.endsWith('.test.imba') and !ignoredDirs.some do(dir) path.startsWith(dir)
+	const testFiles = scanFiles('.test.imba')
 
 	if testFiles.length == 0
 		console.log "Aucun fichier .test.imba trouvé"
@@ -78,6 +99,17 @@ if testMode
 		process.exit(0)
 else
 	# === BUILD EXTENSION MODE ===
+	# Flags for bimba:
+	# - dev: readable code (--no-minify) + external sourcemaps
+	# - prod: minified (bimba default), except Firefox (AMO review requires readable code)
+	let buildFlags = ' --target browser'
+	if watchMode
+		buildFlags += ' --watch'
+	unless prodMode or browser == 'firefox'
+		buildFlags += ' --no-minify'
+	unless prodMode
+		buildFlags += ' --sourcemap external'
+
 	console.log "Début de la compilation pour {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''})..."
 
 	# 2. Recreate output directory from scratch (removes stale files)
@@ -90,6 +122,7 @@ else
 		console.log "-> Assets copiés dans out/assets/"
 
 	# 4. Generate manifest (in watch mode, the compile below blocks forever)
+	let finalManifest = {}
 	console.log "-> Génération du manifest.json..."
 	try
 		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
@@ -105,7 +138,7 @@ else
 		common.version = common.version or pkg.version or '0.0.1'
 		common.description = common.description or pkg.description or ''
 
-		const finalManifest = smartMerge(common, sourceData[browser])
+		finalManifest = smartMerge(common, sourceData[browser])
 		cleanEmptyProperties(finalManifest)
 
 		# Firefox: a Gecko ID is required to sign on AMO
@@ -122,14 +155,24 @@ else
 	# Note: bimba only monitors the entrypoint folder; a modification of metadata.json or app/assets/ requires a manual restart.
 	console.log "-> Compilation des scripts Imba..."
 	try
-		const entries = ['background']
+		const entries = collectEntries(finalManifest)
+		if entries.length == 0
+			console.warn "Aucun entrypoint déclaré dans le manifest"
+			process.exit(0)
+
 		if watchMode
 			for entry of entries
-				spawn("bimba \"app/{entry}.imba\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
+				const name = entry.slice(0, entry.lastIndexOf('.'))
+				if entry.endsWith('.js') and existsSync("app/{name}.imba")
+					spawn("bimba \"app/{name}.imba\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
 			process.stdin.resume()
 		else
 			for entry of entries
-				execSync("bimba app/{entry}.imba --outdir out{buildFlags}", stdio: 'inherit')
+				const name = entry.slice(0, entry.lastIndexOf('.'))
+				if entry.endsWith('.js') and existsSync("app/{name}.imba")
+					execSync("bimba \"app/{name}.imba\" --outdir out{buildFlags}", stdio: 'inherit')
+				elif entry.endsWith('.css') and existsSync("app/{name}.css")
+					cpSync("app/{name}.css", "out/{name}.css")
 	catch err
 		console.error "Erreur lors de la compilation :", err.message
 		process.exit(1)
@@ -138,7 +181,7 @@ else
 	# Name/version read from the generated manifest: only reliable source of truth
 	if packMode and !watchMode
 		mkdirSync('releases') unless existsSync('releases')
-		const m = JSON.parse(readFileSync('out/manifest.json', 'utf8'))
+		const m = finalManifest
 		const archiveName = "{m.name}_{m.version}_{browser}.zip"
 		try
 			# zip from out/ so manifest.json is at the root of the archive
