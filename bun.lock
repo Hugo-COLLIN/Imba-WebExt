@@ -3,6 +3,9 @@
   "configVersion": 1,
   "workspaces": {
     "": {
+      "dependencies": {
+        "webextension-polyfill": "^0.12.0",
+      },
       "devDependencies": {
         "bimba-cli": "^0.7.39",
         "imba": "^2.0.0-alpha.253",
@@ -77,5 +80,7 @@
     "imba": ["imba@2.0.0-alpha.253", "", { "dependencies": { "chokidar": "^5.0.0", "colord": "^2.9.3", "dotenv": "^16.0.3", "envinfo": "^7.8.1", "esbuild": "^0.24.2", "get-port": "^5.1.1" }, "bin": { "imba": "bin/imba", "imbac": "bin/imbac" } }, "sha512-duVmoe82hiZjYk08WGmS0iXShFPqQiv+MGD0Scs4jxCLsbs68/NCq8wqKL8NlUbgQTABEW0H4Sue40Z8PR7f/Q=="],
 
     "readdirp": ["readdirp@5.1.1", "", {}, "sha512-Kko+Y5XQ6fM+Ce3dq3m9YGxnacYZYl9cA1wZjaF3Vbry2L3i1qVg8+CAgNPsXRArPMUMCaOR7oa9Nqntc43JKA=="],
+
+    "webextension-polyfill": ["webextension-polyfill@0.12.0", "", {}, "sha512-97TBmpoWJEE+3nFBQ4VocyCdLKfw54rFaJ6EVQYLBCXqCIpLSZkwGgASpv4oPt9gdKCJ80RJlcmNzNn008Ag6Q=="],
   }
 }

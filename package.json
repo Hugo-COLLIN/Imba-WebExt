@@ -13,5 +13,8 @@
     "devDependencies": {
         "imba": "^2.0.0-alpha.253",
         "bimba-cli": "^0.7.39"
+    },
+    "dependencies": {
+        "webextension-polyfill": "^0.12.0"
     }
 }
