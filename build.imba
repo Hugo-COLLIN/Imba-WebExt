@@ -23,31 +23,76 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
-# Collect entrypoints from the generated manifest
-def collectEntries(manifest)
+# Collect entrypoints from the source manifest (before browser merge).
+# Returns an array of { source, output } objects for .imba → .js conversion.
+def collectEntries(sourceData)
 	const entries = []
+	const common = sourceData
 
-	if manifest.background..service_worker
-		entries.push(manifest.background.service_worker)
-	for s of (manifest.background..scripts or [])
-		entries.push(s)
-	for cs of (manifest.content_scripts or [])
-		for f of (cs.js or []).concat(cs.css or [])
-			entries.push(f)
+	# background
+	if common.background..service_worker..endsWith('.imba')
+		const name = common.background.service_worker.slice(0, -5)
+		entries.push({ source: "app/{name}.imba", output: "{name}.js" })
+	for s of (common.background..scripts or [])
+		if s.endsWith('.imba')
+			const name = s.slice(0, -5)
+			entries.push({ source: "app/{name}.imba", output: "{name}.js" })
 
+	# content_scripts
+	for cs of (common.content_scripts or [])
+		for f of (cs.js or [])
+			if f.endsWith('.imba')
+				const name = f.slice(0, -5)
+				entries.push({ source: "app/{name}.imba", output: "{name}.js" })
+		for f of (cs.css or [])
+			if f.endsWith('.imba')
+				const name = f.slice(0, -5)
+				entries.push({ source: "app/{name}.imba", output: "{name}.css" })
+
+	# HTML pages (popup, options, etc.) - just copy, no compilation
 	const pages = []
 	for k of ['action', 'browser_action', 'side_panel']
-		const page = manifest[k]..default_popup or manifest[k]..default_page
+		const page = common[k]..default_popup or common[k]..default_page
 		pages.push(page) if page
-	pages.push(manifest.options_ui..page) if manifest.options_ui..page
-	pages.push(manifest.options_page) if manifest.options_page
-	pages.push(manifest.devtools_page) if manifest.devtools_page
+	pages.push(common.options_ui..page) if common.options_ui..page
+	pages.push(common.options_page) if common.options_page
+	pages.push(common.devtools_page) if common.devtools_page
 
 	for page of pages
-		const name = page.slice(0, page.lastIndexOf('.'))
-		entries.push("{name}.js") if existsSync("app/{name}.imba")
+		if page.endsWith('.imba')
+			# Imba 2 alpha does not output standalone .html from .imba views
+			# Treat as error: pages must be .html sources
+			console.error "✗ Page {page} must be a .html file, not .imba"
+			process.exit(1)
+		else if page.endsWith('.html')
+			entries.push({ source: "app/{page}", output: "{page}" })
 
-	return [...new Set(entries)]
+	return entries
+
+# Rewrite .imba references to .js in the merged manifest for final output
+def rewriteManifest(manifest)
+	if manifest.background and manifest.background.service_worker and manifest.background.service_worker.endsWith('.imba')
+		manifest.background.service_worker = manifest.background.service_worker.slice(0, -5) + '.js'
+
+	let bgIndex = 0
+	for s of (manifest.background and manifest.background.scripts or [])
+		if s.endsWith('.imba')
+			manifest.background.scripts[bgIndex] = s.slice(0, -5) + '.js'
+		bgIndex++
+
+	for cs of (manifest.content_scripts or [])
+		let jsIndex = 0
+		for f of (cs.js or [])
+			if f.endsWith('.imba')
+				cs.js[jsIndex] = f.slice(0, -5) + '.js'
+			jsIndex++
+		let cssIndex = 0
+		for f of (cs.css or [])
+			if f.endsWith('.imba')
+				cs.css[cssIndex] = f.slice(0, -5) + '.css'
+			cssIndex++
+
+	return manifest
 
 const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
 
@@ -138,6 +183,7 @@ else
 
 	# 4. Generate manifest (in watch mode, the compile below blocks forever)
 	let finalManifest = {}
+	let entries = []
 	console.log "-> Génération du manifest.json..."
 	try
 		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
@@ -160,6 +206,12 @@ else
 		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
 			console.warn "⚠️  Aucun browser_specific_settings.gecko.id défini : requis pour publier sur addons.mozilla.org"
 
+		# Collect entrypoints BEFORE rewriting manifest (need .imba sources)
+		entries = collectEntries(finalManifest)
+
+		# Rewrite .imba → .js in the final manifest for output
+		finalManifest = rewriteManifest(finalManifest)
+
 		writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
 		console.log "-> Manifest {browser} généré avec succès dans out/manifest.json!"
 	catch err
@@ -170,24 +222,23 @@ else
 	# Note: bimba only monitors the entrypoint folder; a modification of metadata.json or app/assets/ requires a manual restart.
 	console.log "-> Compilation des scripts Imba..."
 	try
-		const entries = collectEntries(finalManifest)
 		if entries.length == 0
 			console.warn "Aucun entrypoint déclaré dans le manifest"
 			process.exit(0)
 
 		if watchMode
 			for entry of entries
-				const name = entry.slice(0, entry.lastIndexOf('.'))
-				if entry.endsWith('.js') and existsSync("app/{name}.imba")
-					spawn("bimba \"app/{name}.imba\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
+				if entry.output.endsWith('.js')
+					spawn("bimba \"{entry.source}\" --outdir out{buildFlags}", stdio: 'inherit', shell: true)
+				else
+					cpSync(entry.source, "out/{entry.output}")
 			process.stdin.resume()
 		else
 			for entry of entries
-				const name = entry.slice(0, entry.lastIndexOf('.'))
-				if entry.endsWith('.js') and existsSync("app/{name}.imba")
-					execSync("bimba \"app/{name}.imba\" --outdir out{buildFlags}", stdio: 'inherit')
-				elif entry.endsWith('.css') and existsSync("app/{name}.css")
-					cpSync("app/{name}.css", "out/{name}.css")
+				if entry.output.endsWith('.js')
+					execSync("bimba \"{entry.source}\" --outdir out{buildFlags}", stdio: 'inherit')
+				else
+					cpSync(entry.source, "out/{entry.output}")
 	catch err
 		console.error "Erreur lors de la compilation :", err.message
 		process.exit(1)
