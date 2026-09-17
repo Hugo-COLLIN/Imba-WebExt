@@ -1,6 +1,10 @@
 import { execSync, spawn } from 'child_process'
 import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync } from 'fs'
 
+# Single source of truth for output roots
+const APP_DIR = 'out/app'
+const TEST_DIR = 'out/test'
+
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
 # scalar values from `source` override `target`.
 def smartMerge(target, source)
@@ -116,11 +120,11 @@ def rewriteManifest(manifest)
 
 	return manifest
 
-# Slugify a manifest name for use in a filename (no spaces, they break unquoted shell args)
+# Slugify a manifest name for use in a filename (no spaces)
 def slugify(name)
 	return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
-const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
+const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
 
 # Recursive scan of the repo for a given suffix (used by test mode)
 def scanFiles(suffix)
@@ -128,14 +132,14 @@ def scanFiles(suffix)
 		const path = String(f)
 		path.endsWith(suffix) and !ignoredDirs.some do(dir) path.startsWith(dir)
 
-# Ensure the parent folder of an out/ path exists
+# Ensure the parent folder of an out/app path exists
 def ensureOutDir(output)
 	if output.includes('/')
-		mkdirSync("out/{output.slice(0, output.lastIndexOf('/'))}", recursive: true)
+		mkdirSync("{APP_DIR}/{output.slice(0, output.lastIndexOf('/'))}", recursive: true)
 
 # Run bimba for one entry (outdir preserves the subfolder structure)
 def runBimba(entry, buildFlags, async)
-	const outDir = entry.output.includes('/') ? "out/{entry.output.slice(0, entry.output.lastIndexOf('/'))}" : 'out'
+	const outDir = entry.output.includes('/') ? "{APP_DIR}/{entry.output.slice(0, entry.output.lastIndexOf('/'))}" : APP_DIR
 	if async
 		spawn("bimba \"{entry.source}\" --outdir \"{outDir}\"{buildFlags}", stdio: 'inherit', shell: true)
 	else
@@ -145,7 +149,7 @@ def runBimba(entry, buildFlags, async)
 def processEntry(entry, buildFlags, async)
 	if entry.wrapperHtml
 		ensureOutDir(entry.wrapperHtml)
-		writeFileSync("out/{entry.wrapperHtml}", pageHtml(entry.wrapperJs))
+		writeFileSync("{APP_DIR}/{entry.wrapperHtml}", pageHtml(entry.wrapperJs))
 	elif entry.output.endsWith('.js')
 		runBimba(entry, buildFlags, async)
 	elif entry.output.endsWith('.css') and existsSync(entry.source)
@@ -153,7 +157,7 @@ def processEntry(entry, buildFlags, async)
 		cpSync(entry.source, "out/{entry.output}")
 	elif existsSync(entry.source)
 		ensureOutDir(entry.output)
-		cpSync(entry.source, "out/{entry.output}")
+		cpSync(entry.source, "{APP_DIR}/{entry.output}")
 	else
 		console.warn "✗ Entry source not found: {entry.source or entry.wrapperJs}"
 
@@ -168,9 +172,9 @@ const testMode = args.includes('--test')
 
 if testMode
 	# === TEST MODE ===
-	# Transpile all *.test.imba from the repo to test.local/ (counts then summarizes syntax failures if any), then bun test
-	rmSync('test.local', recursive: true, force: true)
-	mkdirSync('test.local', recursive: true)
+	# Transpile all *.test.imba from the repo to out/test/, then bun test
+	rmSync(TEST_DIR, recursive: true, force: true)
+	mkdirSync(TEST_DIR, recursive: true)
 
 	const testFiles = scanFiles('.test.imba')
 
@@ -182,9 +186,9 @@ if testMode
 	let failures = 0
 	for file of testFiles
 		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
-		mkdirSync("test.local/{dir}", recursive: true)
+		mkdirSync("{TEST_DIR}/{dir}", recursive: true)
 		try
-			execSync("imbac --platform node -m -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit')
+			execSync("imbac --platform node -m -o \"{TEST_DIR}/{dir}\" \"{file}\"", stdio: 'inherit')
 		catch err
 			failures += 1
 			console.error "✗ Transpilation failed: {file}"
@@ -198,14 +202,14 @@ if testMode
 		console.log "   Note: a new .test.imba added during watch is not detected"
 		for file of testFiles
 			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
-			spawn("imbac --platform node -m -w -o \"test.local/{dir}\" \"{file}\"", stdio: 'inherit', shell: true)
-		spawn("bun test --watch test.local", stdio: 'inherit', shell: true)
+			spawn("imbac --platform node -m -w -o \"{TEST_DIR}/{dir}\" \"{file}\"", stdio: 'inherit', shell: true)
+		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
 	else
 		console.log "-> Running tests..."
 		try
-			execSync("bun test test.local", stdio: 'inherit')
+			execSync("bun test {TEST_DIR}", stdio: 'inherit')
 		catch err
 			# bun test already printed the failure summary; just propagate its exit code
 			process.exit(err.status or 1)
@@ -228,13 +232,13 @@ else
 	console.log "== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) =="
 
 	# 2. Recreate output directory from scratch (removes stale files)
-	rmSync('out', recursive: true, force: true)
-	mkdirSync('out')
+	rmSync(APP_DIR, recursive: true, force: true)
+	mkdirSync(APP_DIR, recursive: true)
 
 	# 3. Copy static assets
 	if existsSync('app/assets')
-		cpSync('app/assets', 'out/assets', recursive: true)
-		console.log "-> Assets copied to out/assets/"
+		cpSync('app/assets', "{APP_DIR}/assets", recursive: true)
+		console.log "-> Assets copied to {APP_DIR}/assets/"
 
 	# 4. Generate manifest
 	let finalManifest = {}
@@ -267,8 +271,8 @@ else
 		# Rewrite .imba → .js/.html in the final manifest for output
 		finalManifest = rewriteManifest(finalManifest)
 
-		writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
-		console.log "-> Manifest {browser} written to out/manifest.json"
+		writeFileSync("{APP_DIR}/manifest.json", JSON.stringify(finalManifest, null, 2))
+		console.log "-> Manifest {browser} written to {APP_DIR}/manifest.json"
 	catch err
 		console.error "Manifest generation failed:", err.message
 		process.exit(1)
@@ -296,8 +300,8 @@ else
 		mkdirSync('releases') unless existsSync('releases')
 		const archiveName = "{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
 		try
-			# cwd=out puts manifest.json at the root of the archive; path is quoted
-			execSync("zip -r -q \"../releases/{archiveName}\" .", cwd: 'out', stdio: 'inherit')
+			# cwd=APP_DIR puts manifest.json at the root of the archive; path is quoted
+			execSync("zip -r -q \"../../releases/{archiveName}\" .", cwd: APP_DIR, stdio: 'inherit')
 			console.log "-> Archive releases/{archiveName} created"
 		catch err
 			console.error "Archiving failed (is zip installed?) :", err.message

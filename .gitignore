@@ -1,5 +1,4 @@
 .cache/
 out/
 releases/
-test.local/
 node_modules/

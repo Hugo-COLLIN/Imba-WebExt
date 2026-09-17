@@ -16,9 +16,9 @@ describe 'metadata.json' do
 		expect(m.firefox isa Object).toBe(true)
 
 describe 'Generated manifest (run bun run build.imba first)' do
-	const path = 'out/manifest.json'
+	const path = 'out/app/manifest.json'
 
-	execSync('bun run build.imba', stdio: 'pipe')   # garantit que out/ est généré, indépendamment de l'ordre des fichiers
+	execSync('bun run build.imba', stdio: 'pipe')   # garantit que out/app/ est généré, indépendamment de l'ordre des fichiers
 
 	test 'was generated' do
 		expect(existsSync(path)).toBe(true)
@@ -34,4 +34,4 @@ describe 'Generated manifest (run bun run build.imba first)' do
 		test 'background references an existing compiled file' do
 			const file = m.background..service_worker or (m.background..scripts or [])[0]
 			expect(typeof file == 'string').toBe(true)
-			expect(existsSync("out/{file}")).toBe(true)
+			expect(existsSync("out/app/{file}")).toBe(true)
