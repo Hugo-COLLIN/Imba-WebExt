@@ -1,5 +1,7 @@
 import { execSync, spawn } from 'child_process'
-import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync, watch as fsWatch } from 'fs'
+import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync, watch as fsWatch, statSync } from 'fs'
+import { zipSync } from 'fflate'
+import { join } from 'path'
 import { imbaPlugin, setTarget } from './imba-plugin.js'
 import * as imbaCompiler from 'imba/compiler'
 
@@ -190,6 +192,17 @@ def compileTestFile(source, dest)
 		console.error red("✗ {source}: {err.message}")
 		return false
 
+# Readdir récursif {chemin/relatif: Uint8Array} attendu par fflate
+def readDir(dir, base = '')
+	const out = {}
+	for name of readdirSync(dir)
+		const rel = base ? "{base}/{name}" : name
+		if statSync(join(dir, name)).isDirectory()
+			Object.assign(out, readDir(join(dir, name), rel))
+		else
+			out[rel] = readFileSync(join(dir, name))
+	return out
+
 
 # --- Flags ---
 const args = process.argv.slice(2)
@@ -332,8 +345,7 @@ else
 		mkdirSync('releases') unless existsSync('releases')
 		const archiveName = "{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
 		try
-			# cwd=APP_DIR puts manifest.json at the root of the archive; path is quoted
-			execSync("zip -r -q \"../../releases/{archiveName}\" .", cwd: APP_DIR, stdio: 'inherit')
+			writeFileSync("releases/{archiveName}", zipSync(readDir(APP_DIR), level: 9))
 			console.log green("-> Archive releases/{archiveName} created")
 		catch err
 			console.error red("Archiving failed (is zip installed?) : {err.message}")
