@@ -1,5 +1,7 @@
 import { execSync, spawn } from 'child_process'
-import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync } from 'fs'
+import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync, watch as fsWatch } from 'fs'
+import { imbaPlugin, setTarget } from './imba-plugin.js'
+import * as imbaCompiler from 'imba/compiler'
 
 # Single source of truth for output roots
 const APP_DIR = 'out/app'
@@ -28,7 +30,6 @@ def cleanEmptyProperties(obj)
 			delete obj[key] if Object.keys(value).length == 0
 
 # Generate the minimal HTML wrapper for an Imba page.
-# Styles are bundled into the JS by bimba, so no <style> link needed.
 # The src uses only the file basename: HTML and JS live in the same folder.
 def pageHtml(jsFile)
 	const fileName = jsFile.includes('/') ? jsFile.slice(jsFile.lastIndexOf('/') + 1) : jsFile
@@ -61,7 +62,7 @@ def collectEntries(sourceData)
 				const name = f.slice(0, -5)
 				entries.push({ source: "app/{name}.imba", output: "{name}.css" })
 
-	# HTML pages (popup, options, etc.) - just copy, no compilation
+	# Pages (popup, options, etc.)
 	const pages = []
 	for k of ['action', 'browser_action', 'side_panel']
 		const page = common[k]..default_popup or common[k]..default_page
@@ -80,8 +81,7 @@ def collectEntries(sourceData)
 
 	return entries
 
-# Rewrite .imba references in the merged manifest for final output:
-# entrypoints (.js/.css) and page wrappers (.html)
+# Rewrite .imba references in the merged manifest for final output
 def rewriteManifest(manifest)
 	if manifest.background..service_worker..endsWith('.imba')
 		manifest.background.service_worker = manifest.background.service_worker.slice(0, -5) + '.js'
@@ -137,32 +137,50 @@ def ensureOutDir(output)
 	if output.includes('/')
 		mkdirSync("{APP_DIR}/{output.slice(0, output.lastIndexOf('/'))}", recursive: true)
 
-# Run bimba for one entry (outdir preserves the subfolder structure)
-def runBimba(entry, buildFlags, async)
-	const outDir = entry.output.includes('/') ? "{APP_DIR}/{entry.output.slice(0, entry.output.lastIndexOf('/'))}" : APP_DIR
-	if async
-		spawn("bimba \"{entry.source}\" --outdir \"{outDir}\"{buildFlags}", stdio: 'inherit', shell: true)
-	else
-		execSync("bimba \"{entry.source}\" --outdir \"{outDir}\"{buildFlags}", stdio: 'inherit')
-
-# Process one entry: compile .imba (js), generate wrapper .html, or copy asset
-def processEntry(entry, buildFlags, async)
+# Copy-only entries (html, css, wrappers)
+def processEntry(entry)
 	if entry.wrapperHtml
 		ensureOutDir(entry.wrapperHtml)
 		writeFileSync("{APP_DIR}/{entry.wrapperHtml}", pageHtml(entry.wrapperJs))
-	elif entry.output.endsWith('.js')
-		runBimba(entry, buildFlags, async)
-	elif entry.output.endsWith('.css') and existsSync(entry.source)
-		ensureOutDir(entry.output)
-		cpSync(entry.source, "out/{entry.output}")
 	elif existsSync(entry.source)
 		ensureOutDir(entry.output)
 		cpSync(entry.source, "{APP_DIR}/{entry.output}")
 	else
 		console.warn "✗ Entry source not found: {entry.source or entry.wrapperJs}"
 
+# Debounce: collapses bursts of fs events into a single run
+def debounce(fn, ms)
+	let timer = null
+	return do
+		clearTimeout(timer) if timer
+		timer = setTimeout(fn, ms)
 
-# 1. Parse flags (--chrome / --firefox / --watch / --prod / --pack / --test)
+# Recursively watch a directory; `fn` runs on any change (debounced by caller)
+def watchDir(path, fn)
+	fsWatch(path, recursive: true) do(eventType, filename)
+		fn() if filename
+
+# Transpile one test file with the Imba compiler, in-process
+def compileTestFile(source, dest)
+	mkdirSync(dest.slice(0, dest.lastIndexOf('/')), recursive: true)
+	try
+		const out = imbaCompiler.compile(readFileSync(source, 'utf8'),
+			sourcePath: source
+			platform: 'node'
+			comments: false
+		)
+		if out.errors and out.errors.length > 0
+			for e of out.errors
+				console.error "  {e.message}" if e
+			return false
+		writeFileSync(dest, out.js)
+		return true
+	catch err
+		console.error "✗ {source}: {err.message}"
+		return false
+
+
+# --- Flags ---
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
@@ -185,24 +203,26 @@ if testMode
 	console.log "-> Transpiling {testFiles.length} test file(s)..."
 	let failures = 0
 	for file of testFiles
-		const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
-		mkdirSync("{TEST_DIR}/{dir}", recursive: true)
-		try
-			execSync("imbac --platform node -m -o \"{TEST_DIR}/{dir}\" \"{file}\"", stdio: 'inherit')
-		catch err
-			failures += 1
-			console.error "✗ Transpilation failed: {file}"
+		const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
+		failures += 1 unless compileTestFile(file, dest)
 
 	if failures > 0
-		console.error "\n✗ {failures}/{testFiles.length} file(s) failed to transpile - fix the syntax and rerun"
+		console.error "\n✗ {failures}/{testFiles.length} test file(s) failed to transpile - fix the syntax and rerun"
 		process.exit(1)
 
 	if watchMode
-		console.log "-> Watch: one imbac watcher per file + bun test --watch"
-		console.log "   Note: a new .test.imba added during watch is not detected"
+		def recompileAll
+			let fails = 0
+			for file of testFiles
+				const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
+				fails += 1 unless compileTestFile(file, dest)
+			console.log "-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)"
+
+		const debounced = debounce(recompileAll, 120)
 		for file of testFiles
-			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
-			spawn("imbac --platform node -m -w -o \"{TEST_DIR}/{dir}\" \"{file}\"", stdio: 'inherit', shell: true)
+			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '.'
+			watchDir(dir, debounced)
+
 		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
@@ -216,35 +236,28 @@ if testMode
 		process.exit(0)
 else
 	# === BUILD EXTENSION MODE ===
-	# Flags for bimba:
-	# - dev: readable code (--no-minify) + external sourcemaps
-	# - prod: minified (bimba default), except Firefox (AMO review requires readable code)
-	let buildFlags = ' --target browser'
-	if watchMode
-		buildFlags += ' --watch'
-	# Add --no-minify in dev, and ALWAYS for Firefox (AMO review)
+	setTarget('browser')
 	const minify = prodMode and browser != 'firefox'
-	unless minify
-		buildFlags += ' --no-minify'
-	unless prodMode
-		buildFlags += ' --sourcemap external'
+	const sourcemap = prodMode ? 'none' : 'linked'
 
 	console.log "== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) =="
 
-	# 2. Recreate output directory from scratch (removes stale files)
-	rmSync(APP_DIR, recursive: true, force: true)
-	mkdirSync(APP_DIR, recursive: true)
+	let finalManifest = null
 
-	# 3. Copy static assets
-	if existsSync('app/assets')
-		cpSync('app/assets', "{APP_DIR}/assets", recursive: true)
-		console.log "-> Assets copied to {APP_DIR}/assets/"
+	def buildAll
+		# => Recreate output directory from scratch (removes stale files)
+		rmSync(APP_DIR, recursive: true, force: true)
+		mkdirSync(APP_DIR, recursive: true)
 
-	# 4. Generate manifest
-	let finalManifest = {}
-	let entries = []
-	console.log "-> Generating manifest..."
-	try
+		# => Copy static assets
+		if existsSync('app/assets')
+			cpSync('app/assets', "{APP_DIR}/assets", recursive: true)
+			console.log "-> Assets copied to {APP_DIR}/assets/"
+
+
+		# => Generate manifest
+		console.log "-> Generating manifest..."
+
 		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
 		const { chrome, firefox, ...common } = sourceData
 
@@ -258,43 +271,54 @@ else
 		common.version = common.version or pkg.version or '0.0.1'
 		common.description = common.description or pkg.description or ''
 
-		finalManifest = smartMerge(common, sourceData[browser])
+		const merged = smartMerge(common, sourceData[browser])
+
+		# Collect .imba entrypoints before rewriting them to .js/.html
+		const entries = collectEntries(merged)
+		finalManifest = rewriteManifest(merged)
 		cleanEmptyProperties(finalManifest)
 
 		# Firefox: a Gecko ID is required to sign on AMO
 		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
 			console.warn "⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org"
 
-		# Collect entrypoints BEFORE rewriting manifest (need .imba sources)
-		entries = collectEntries(finalManifest)
-
-		# Rewrite .imba → .js/.html in the final manifest for output
-		finalManifest = rewriteManifest(finalManifest)
-
 		writeFileSync("{APP_DIR}/manifest.json", JSON.stringify(finalManifest, null, 2))
 		console.log "-> Manifest {browser} written to {APP_DIR}/manifest.json"
-	catch err
-		console.error "Manifest generation failed:", err.message
-		process.exit(1)
 
-	# 5. Compile / copy entries
-	# Note: bimba only monitors the entrypoint folder; a modification of
-	# metadata.json or app/assets/ requires a manual restart
-	console.log "-> Processing {entries.length} entr(ies)..."
-	try
-		if entries.length == 0
-			console.warn "No entrypoint declared in the manifest"
-			process.exit(0)
+		# => Compile / copy entries
+		const jsEntries = entries.filter do(e)
+			e.source and e.output and e.output.endsWith('.js')
+		const otherEntries = entries.filter do(e)
+			!(e.source and e.output and e.output.endsWith('.js'))
 
-		for entry of entries
-			processEntry(entry, buildFlags, watchMode)
+		console.log "-> Processing {entries.length} entr(ies)..."
 
-		process.stdin.resume() if watchMode
-	catch err
-		console.error "Compilation failed:", err.message
-		process.exit(1)
+		if jsEntries.length > 0
+			await Bun.build(
+				entrypoints: jsEntries.map do(e) e.source
+				outdir: APP_DIR
+				target: 'browser'
+				minify: minify
+				sourcemap: sourcemap
+				plugins: [imbaPlugin]
+			)
 
-	# 6. Package the extension into releases/ (--pack)
+		for entry of otherEntries
+			processEntry(entry)
+
+		console.log "-> Build complete ({browser})"
+
+	await buildAll()
+
+	if watchMode
+		# One fs.watch on app/ covers .imba sources (Bun.build), assets,
+		# html templates and metadata.json — full rebuild on any change
+		const debounced = debounce(buildAll, 120)
+		watchDir('app', debounced)
+		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
+		process.stdin.resume()
+
+	# => Package the extension into releases/ (--pack)
 	# Name/version read from the generated manifest
 	if packMode and !watchMode
 		mkdirSync('releases') unless existsSync('releases')

@@ -1,1 +1,1 @@
-preload = ["bimba-cli/plugin.js"]
+preload = ["./imba-plugin.js"]
