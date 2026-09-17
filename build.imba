@@ -3,9 +3,21 @@ import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, rea
 import { imbaPlugin, setTarget } from './imba-plugin.js'
 import * as imbaCompiler from 'imba/compiler'
 
-# Single source of truth for output roots
+# Output roots (single source of truth)
 const APP_DIR = 'out/app'
 const TEST_DIR = 'out/test'
+
+# ANSI colors for logs
+def green(t)  
+	"\x1b[32m{t}\x1b[0m"
+def red(t)    
+	"\x1b[31m{t}\x1b[0m"
+def yellow(t) 
+	"\x1b[33m{t}\x1b[0m"
+def cyan(t)   
+	"\x1b[36m{t}\x1b[0m"
+def dim(t)    
+	"\x1b[2m{t}\x1b[0m"
 
 # Smart merge: recursive for objects, concatenates + dedupes arrays,
 # scalar values from `source` override `target`.
@@ -37,7 +49,6 @@ def pageHtml(jsFile)
 
 # Collect entrypoints from the source manifest (before browser merge).
 # .imba pages get a compiled .js entry AND a generated wrapper .html.
-# Plain .html/.css entries are copied as-is.
 def collectEntries(sourceData)
 	const entries = []
 	const common = sourceData
@@ -146,7 +157,7 @@ def processEntry(entry)
 		ensureOutDir(entry.output)
 		cpSync(entry.source, "{APP_DIR}/{entry.output}")
 	else
-		console.warn "✗ Entry source not found: {entry.source or entry.wrapperJs}"
+		console.warn yellow("✗ Entry source not found: {entry.source or entry.wrapperJs}")
 
 # Debounce: collapses bursts of fs events into a single run
 def debounce(fn, ms)
@@ -176,7 +187,7 @@ def compileTestFile(source, dest)
 		writeFileSync(dest, out.js)
 		return true
 	catch err
-		console.error "✗ {source}: {err.message}"
+		console.error red("✗ {source}: {err.message}")
 		return false
 
 
@@ -197,17 +208,17 @@ if testMode
 	const testFiles = scanFiles('.test.imba')
 
 	if testFiles.length == 0
-		console.log "No .test.imba file found"
+		console.log yellow("No .test.imba file found")
 		process.exit(0)
 
-	console.log "-> Transpiling {testFiles.length} test file(s)..."
+	console.log cyan("-> Transpiling {testFiles.length} test file(s)...")
 	let failures = 0
 	for file of testFiles
 		const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
 		failures += 1 unless compileTestFile(file, dest)
 
 	if failures > 0
-		console.error "\n✗ {failures}/{testFiles.length} test file(s) failed to transpile - fix the syntax and rerun"
+		console.error red("\n✗ {failures}/{testFiles.length} test file(s) failed to transpile")
 		process.exit(1)
 
 	if watchMode
@@ -216,7 +227,7 @@ if testMode
 			for file of testFiles
 				const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
 				fails += 1 unless compileTestFile(file, dest)
-			console.log "-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)"
+			console.log green("-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)")
 
 		const debounced = debounce(recompileAll, 120)
 		for file of testFiles
@@ -227,7 +238,7 @@ if testMode
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
 	else
-		console.log "-> Running tests..."
+		console.log cyan("-> Running tests...")
 		try
 			execSync("bun test {TEST_DIR}", stdio: 'inherit')
 		catch err
@@ -240,7 +251,7 @@ else
 	const minify = prodMode and browser != 'firefox'
 	const sourcemap = prodMode ? 'none' : 'linked'
 
-	console.log "== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) =="
+	console.log cyan("== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) ==")
 
 	let finalManifest = null
 
@@ -252,16 +263,14 @@ else
 		# => Copy static assets
 		if existsSync('app/assets')
 			cpSync('app/assets', "{APP_DIR}/assets", recursive: true)
-			console.log "-> Assets copied to {APP_DIR}/assets/"
-
+			console.log dim("-> Assets copied to {APP_DIR}/assets/")
 
 		# => Generate manifest
-		console.log "-> Generating manifest..."
+		console.log dim("-> Generating manifest...")
 
 		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
 		const { chrome, firefox, ...common } = sourceData
 
-		# package.json is optional: read only if it exists
 		let pkg = {}
 		if existsSync('package.json')
 			pkg = JSON.parse(readFileSync('package.json', 'utf8'))
@@ -280,10 +289,10 @@ else
 
 		# Firefox: a Gecko ID is required to sign on AMO
 		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
-			console.warn "⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org"
+			console.warn yellow("⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org")
 
 		writeFileSync("{APP_DIR}/manifest.json", JSON.stringify(finalManifest, null, 2))
-		console.log "-> Manifest {browser} written to {APP_DIR}/manifest.json"
+		console.log dim("-> Manifest {browser} written to {APP_DIR}/manifest.json")
 
 		# => Compile / copy entries
 		const jsEntries = entries.filter do(e)
@@ -291,7 +300,7 @@ else
 		const otherEntries = entries.filter do(e)
 			!(e.source and e.output and e.output.endsWith('.js'))
 
-		console.log "-> Processing {entries.length} entr(ies)..."
+		console.log dim("-> Processing {entries.length} entr(ies)...")
 
 		if jsEntries.length > 0
 			await Bun.build(
@@ -306,12 +315,12 @@ else
 		for entry of otherEntries
 			processEntry(entry)
 
-		console.log "-> Build complete ({browser})"
+		console.log green("-> Build complete ({browser})")
 
 	await buildAll()
 
 	if watchMode
-		# One fs.watch on app/ covers .imba sources (Bun.build), assets,
+		# One fs.watch on app/ covers .imba sources, assets,
 		# html templates and metadata.json — full rebuild on any change
 		const debounced = debounce(buildAll, 120)
 		watchDir('app', debounced)
@@ -319,14 +328,13 @@ else
 		process.stdin.resume()
 
 	# => Package the extension into releases/ (--pack)
-	# Name/version read from the generated manifest
 	if packMode and !watchMode
 		mkdirSync('releases') unless existsSync('releases')
 		const archiveName = "{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
 		try
 			# cwd=APP_DIR puts manifest.json at the root of the archive; path is quoted
 			execSync("zip -r -q \"../../releases/{archiveName}\" .", cwd: APP_DIR, stdio: 'inherit')
-			console.log "-> Archive releases/{archiveName} created"
+			console.log green("-> Archive releases/{archiveName} created")
 		catch err
-			console.error "Archiving failed (is zip installed?) :", err.message
+			console.error red("Archiving failed (is zip installed?) : {err.message}")
 			process.exit(1)
