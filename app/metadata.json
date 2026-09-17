@@ -8,6 +8,7 @@
   ],
   "content_scripts": [
     {
+      "matches": ["<all_urls>"],
       "js": ["content.imba"]
     }
   ],
@@ -17,12 +18,12 @@
     "128": "assets/icons/icon128.png"
   },
   "options_ui": {
-    "page": "options/options.imba"
+    "page": "ui/options.imba"
   },
   "chrome": {
     "manifest_version": 3,
     "action": {
-      "default_popup": "popup/popup.imba",
+      "default_popup": "ui/popup.imba",
       "default_title": "Action title",
       "default_icon": {
         "16": "assets/icons/icon16.png",
@@ -37,7 +38,7 @@
   "firefox": {
     "manifest_version": 2,
     "browser_action": {
-      "default_popup": "popup/popup.imba",
+      "default_popup": "ui/popup.imba",
       "default_title": "Action title",
       "default_icon": {
         "16": "assets/icons/icon16.png",
