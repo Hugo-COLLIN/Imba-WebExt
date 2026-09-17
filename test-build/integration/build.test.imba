@@ -11,6 +11,10 @@ def maxLineLength(content)
 		max = line.length if line.length > max
 	return max
 
+# Same slugification rule as build.imba (archive names)
+def slugify(name)
+	return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
 describe "Intégration du build" do
 
 	test "build dev Chrome génère manifest + background" do
@@ -36,10 +40,10 @@ describe "Intégration du build" do
 		const longest = maxLineLength(readFileSync('out/background.js', 'utf8'))
 		expect(longest <= 2000).toBe(true)
 
-	test "--pack produit une archive nommée depuis le manifest" do
+	test "--pack produit une archive nommée depuis le manifest (slug + version + browser)" do
 		execSync('bun run build.imba --pack', stdio: 'pipe')
 		const manifest = JSON.parse(readFileSync('out/manifest.json', 'utf8'))
-		const archiveName = "{manifest.name}_{manifest.version}_chrome.zip"
+		const archiveName = "{slugify(manifest.name)}_{manifest.version}_chrome.zip"
 		expect(existsSync("releases/{archiveName}")).toBe(true)
 
 	test "les assets sont copiés si présents" do

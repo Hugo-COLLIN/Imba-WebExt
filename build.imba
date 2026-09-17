@@ -25,6 +25,7 @@ def cleanEmptyProperties(obj)
 
 # Generate the minimal HTML wrapper for an Imba page.
 # Styles are bundled into the JS by bimba, so no <style> link needed.
+# The src uses only the file basename: HTML and JS live in the same folder.
 def pageHtml(jsFile)
 	const fileName = jsFile.includes('/') ? jsFile.slice(jsFile.lastIndexOf('/') + 1) : jsFile
 	return '<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./' + fileName + '"></script>\n  </body>\n</html>\n'
@@ -115,6 +116,10 @@ def rewriteManifest(manifest)
 
 	return manifest
 
+# Slugify a manifest name for use in a filename (no spaces, they break unquoted shell args)
+def slugify(name)
+	return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
 const ignoredDirs = ['node_modules', 'out', 'releases', 'test.local', '.git']
 
 # Recursive scan of the repo for a given suffix (used by test mode)
@@ -131,11 +136,10 @@ def ensureOutDir(output)
 # Run bimba for one entry (outdir preserves the subfolder structure)
 def runBimba(entry, buildFlags, async)
 	const outDir = entry.output.includes('/') ? "out/{entry.output.slice(0, entry.output.lastIndexOf('/'))}" : 'out'
-	const quotedFlags = buildFlags
 	if async
-		spawn("bimba \"{entry.source}\" --outdir \"{outDir}\"{quotedFlags}", stdio: 'inherit', shell: true)
+		spawn("bimba \"{entry.source}\" --outdir \"{outDir}\"{buildFlags}", stdio: 'inherit', shell: true)
 	else
-		execSync("bimba \"{entry.source}\" --outdir \"{outDir}\"{quotedFlags}", stdio: 'inherit')
+		execSync("bimba \"{entry.source}\" --outdir \"{outDir}\"{buildFlags}", stdio: 'inherit')
 
 # Process one entry: compile .imba (js), generate wrapper .html, or copy asset
 def processEntry(entry, buildFlags, async)
@@ -260,7 +264,7 @@ else
 		# Collect entrypoints BEFORE rewriting manifest (need .imba sources)
 		entries = collectEntries(finalManifest)
 
-		# Rewrite .imba → .js in the final manifest for output
+		# Rewrite .imba → .js/.html in the final manifest for output
 		finalManifest = rewriteManifest(finalManifest)
 
 		writeFileSync('out/manifest.json', JSON.stringify(finalManifest, null, 2))
@@ -270,6 +274,8 @@ else
 		process.exit(1)
 
 	# 5. Compile / copy entries
+	# Note: bimba only monitors the entrypoint folder; a modification of
+	# metadata.json or app/assets/ requires a manual restart
 	console.log "-> Processing {entries.length} entr(ies)..."
 	try
 		if entries.length == 0
@@ -285,14 +291,13 @@ else
 		process.exit(1)
 
 	# 6. Package the extension into releases/ (--pack)
-	# Name/version read from the generated manifest: only reliable source of truth
+	# Name/version read from the generated manifest
 	if packMode and !watchMode
 		mkdirSync('releases') unless existsSync('releases')
-		const m = finalManifest
-		const archiveName = "{m.name}_{m.version}_{browser}.zip"
+		const archiveName = "{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
 		try
-			# zip from out/ so manifest.json is at the root of the archive
-			execSync("cd out && zip -r ../releases/{archiveName} .", stdio: 'inherit')
+			# cwd=out puts manifest.json at the root of the archive; path is quoted
+			execSync("zip -r -q \"../releases/{archiveName}\" .", cwd: 'out', stdio: 'inherit')
 			console.log "-> Archive releases/{archiveName} created"
 		catch err
 			console.error "Archiving failed (is zip installed?) :", err.message
