@@ -11,8 +11,9 @@
         "test:watch": "bun run build.imba --test --watch"
     },
     "devDependencies": {
-        "imba": "^2.0.0-alpha.253",
-        "bimba-cli": "^0.7.39"
+        "@types/bun": "^1.4.2",
+        "bimba-cli": "^0.7.39",
+        "imba": "^2.0.0-alpha.253"
     },
     "dependencies": {
         "webextension-polyfill": "^0.12.0"
