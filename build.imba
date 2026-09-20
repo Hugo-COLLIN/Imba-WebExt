@@ -176,7 +176,7 @@ def runTests
 
 	# build.imba is transpiled alongside the tests so they can import it
 	const files = ['build.imba', ...scanFiles('.test.imba')]
-	const testFiles = files.filter do(f) f.endsWith('.test.imba')
+	const testFiles = files.filter do(f) String(f).endsWith('.test.imba')
 
 	if testFiles.length == 0
 		console.log col('yellow', "No .test.imba file found")
@@ -193,7 +193,7 @@ def runTests
 			const fails = transpileAll(files)
 			console.log col('green', "-> Recompiled {files.length - fails}/{files.length} file(s)")
 		const debounced = debounce(recompile, 120)
-		const dirs = Array.from(new Set(files.map do(f) dirname(f)))
+		const dirs = Array.from(new Set(files.map do(f) dirname(String(f))))
 		for dir of dirs
 			watchDir(dir, debounced)
 		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
