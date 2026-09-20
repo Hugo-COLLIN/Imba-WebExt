@@ -1,6 +1,7 @@
 import { test, expect, describe } from 'bun:test'
 import { execSync } from 'child_process'
 import { existsSync, readFileSync, readdirSync } from 'fs'
+import { slugify } from '../../build.js'
 
 # Integration tests: each spawns a full `bun run build.imba` run.
 
@@ -9,14 +10,9 @@ def maxLineLength(content)
 	let max = 0
 	for line of content.split('\n')
 		max = line.length if line.length > max
-	return max
-
-# Same slugification rule as build.imba (archive names)
-def slugify(name)
-	return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+	max
 
 describe "Intégration du build" do
-
 	test "build dev Chrome génère manifest + background" do
 		execSync('bun run build.imba', stdio: 'pipe')
 		expect(existsSync('out/app/manifest.json')).toBe(true)
@@ -40,11 +36,24 @@ describe "Intégration du build" do
 		const longest = maxLineLength(readFileSync('out/app/background.js', 'utf8'))
 		expect(longest <= 2000).toBe(true)
 
-	test "--pack produit une archive nommée depuis le manifest (slug + version + browser)" do
+	test "--pack produit une archive fflate nommée depuis le manifest" do
 		execSync('bun run build.imba --pack', stdio: 'pipe')
 		const manifest = JSON.parse(readFileSync('out/app/manifest.json', 'utf8'))
 		const archiveName = "{slugify(manifest.name)}_{manifest.version}_chrome.zip"
 		expect(existsSync("releases/{archiveName}")).toBe(true)
+
+	test "les pages .imba produisent le wrapper .html + le .js compilé" do
+		if existsSync('app/popup/popup.imba')
+			execSync('bun run build.imba', stdio: 'pipe')
+			expect(existsSync('out/app/popup/popup.js')).toBe(true)
+			expect(existsSync('out/app/popup/popup.html')).toBe(true)
+			const html = readFileSync('out/app/popup/popup.html', 'utf8')
+			expect(html.includes('<script type="module" src="./popup.js">')).toBe(true)
+
+	test "le CSS plain référencé est copié dans out/app" do
+		if existsSync('app/styles.css')
+			execSync('bun run build.imba', stdio: 'pipe')
+			expect(existsSync('out/app/styles.css')).toBe(true)
 
 	test "les assets sont copiés si présents" do
 		if existsSync('app/assets')

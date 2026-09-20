@@ -2,13 +2,13 @@ import { execSync, spawn } from 'child_process'
 import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync, watch as fsWatch, statSync } from 'fs'
 import { dirname, join } from 'path'
 import { zipSync } from 'fflate'
-import { imbaPlugin, setTarget } from './imba-plugin.js'
 import * as imbaCompiler from 'imba/compiler'
 
 # Single source of truth
 const APP_DIR = 'out/app'
 const TEST_DIR = 'out/test'
-const PAGE_KEYS = ['action', 'browser_action', 'side_panel', 'options_ui', 'options_page', 'devtools_page']
+export const PAGE_KEYS = ['action', 'browser_action', 'side_panel', 'options_ui', 'options_page', 'devtools_page']
+const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
 
 # --- Small utilities ---
 
@@ -18,7 +18,7 @@ def col(name, t) do "\x1b[{ANSI[name]}m{t}\x1b[0m"
 def readJson(path)
 	existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {}
 
-def slugify(name)
+export def slugify(name)
 	name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 
 def debounce(fn, ms)
@@ -27,18 +27,24 @@ def debounce(fn, ms)
 		clearTimeout(timer) if timer
 		timer = setTimeout(fn, ms)
 
+# Watch recursively; events inside ignored dirs (out/, node_modules/...)
+# never fire the callback; prevents self-triggered rebuild loops.
 def watchDir(path, fn)
-	fsWatch(path, recursive: true) do(e, f) fn() if f
+	fsWatch(path, recursive: true) do(e, f)
+		if f and !ignoredDirs.some 
+			do(d) 
+				String(f).startsWith(d)
+				fn()
 
 # Minimal HTML wrapper for a compiled Imba page (lives next to the .js)
-def pageHtml(jsPath)
+export def pageHtml(jsPath)
 	const file = jsPath.split('/').pop()
-	'<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./{file}"></script>\n  </body>\n</html>\n'
+	'<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./' + file + '"></script>\n  </body>\n</html>\n'
 
 # --- Manifest ---
 
 # Recursive merge: objects merge, arrays concat+dedupe, scalars override
-def smartMerge(target, source)
+export def smartMerge(target, source)
 	const result = { ...target }
 	for own key, value of source
 		if Array.isArray(result[key]) and Array.isArray(value)
@@ -50,7 +56,7 @@ def smartMerge(target, source)
 	result
 
 # Remove null / undefined / empty-object keys (recursive)
-def cleanEmptyProperties(obj)
+export def cleanEmptyProperties(obj)
 	for own key, value of obj
 		if value == null
 			delete obj[key]
@@ -60,7 +66,7 @@ def cleanEmptyProperties(obj)
 
 # Single recursive pass over the manifest: collects entries AND rewrites
 # refs in place, so the two can never drift out of sync.
-def walkManifest(node, entries, kind = null)
+export def walkManifest(node, entries, kind = null)
 	if typeof node == 'string'
 		if kind == 'css' or (kind == 'page' and node.endsWith('.html'))
 			entries.push({ source: "app/{node}", output: node })   # plain asset: copy
@@ -112,8 +118,9 @@ def processEntry(e)
 
 # --- Tests ---
 
+# Transpile one .imba file (test or build.imba itself) with the compiler
 def compileTestFile(source)
-	const dest = "{TEST_DIR}/{source.replace('.test.imba', '.test.js')}"
+	const dest = "{TEST_DIR}/{source.replace('.imba', '.js')}"
 	mkdirSync(dirname(dest), recursive: true)
 	try
 		const out = imbaCompiler.compile(readFileSync(source, 'utf8'),
@@ -136,8 +143,6 @@ def transpileAll(files)
 	for f of files
 		fails += 1 unless compileTestFile(f)
 	fails
-
-const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
 
 def scanFiles(suffix)
 	readdirSync('.', recursive: true).filter do(f)
@@ -169,23 +174,26 @@ def runTests
 	rmSync(TEST_DIR, recursive: true, force: true)
 	mkdirSync(TEST_DIR, recursive: true)
 
-	const testFiles = scanFiles('.test.imba')
+	# build.imba is transpiled alongside the tests so they can import it
+	const files = ['build.imba', ...scanFiles('.test.imba')]
+	const testFiles = files.filter do(f) f.endsWith('.test.imba')
+
 	if testFiles.length == 0
 		console.log col('yellow', "No .test.imba file found")
 		return
 
-	console.log col('cyan', "-> Transpiling {testFiles.length} test file(s)...")
-	const failures = transpileAll(testFiles)
+	console.log col('cyan', "-> Transpiling {files.length} file(s)...")
+	const failures = transpileAll(files)
 	if failures > 0
-		console.error col('red', "\n✗ {failures}/{testFiles.length} test file(s) failed to transpile")
+		console.error col('red', "\n✗ {failures}/{files.length} file(s) failed to transpile")
 		process.exit(1)
 
 	if watchMode
 		def recompile
-			const fails = transpileAll(testFiles)
-			console.log col('green', "-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)")
+			const fails = transpileAll(files)
+			console.log col('green', "-> Recompiled {files.length - fails}/{files.length} file(s)")
 		const debounced = debounce(recompile, 120)
-		const dirs = Array.from(new Set(testFiles.map do(f) dirname(f)))
+		const dirs = Array.from(new Set(files.map do(f) dirname(f)))
 		for dir of dirs
 			watchDir(dir, debounced)
 		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
@@ -200,6 +208,7 @@ def runTests
 			process.exit(err.status or 1)
 
 def runBuild
+	const { imbaPlugin, setTarget } = await import('./imba-plugin.js')
 	setTarget('browser')
 	const minify = prodMode and browser != 'firefox'
 	const sourcemap = prodMode ? 'none' : 'linked'
@@ -248,8 +257,11 @@ def runBuild
 		console.log col('green', "-> Archive {archive} created")
 
 # --- Dispatch ---
+# Entrypoint guard: importing this module (from tests) never runs the pipeline.
+const isEntry = process.argv[1] and process.argv[1].replace(/\\/g, '/').endsWith('/build.imba')
 
-if testMode
-	runTests()
-else
-	await runBuild()
+if isEntry
+	if testMode
+		runTests()
+	else
+		await runBuild()
