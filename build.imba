@@ -1,28 +1,43 @@
 import { execSync, spawn } from 'child_process'
 import { writeFileSync, rmSync, mkdirSync, existsSync, readFileSync, cpSync, readdirSync, watch as fsWatch, statSync } from 'fs'
+import { dirname, join } from 'path'
 import { zipSync } from 'fflate'
-import { join } from 'path'
 import { imbaPlugin, setTarget } from './imba-plugin.js'
 import * as imbaCompiler from 'imba/compiler'
 
-# Output roots (single source of truth)
+# Single source of truth
 const APP_DIR = 'out/app'
 const TEST_DIR = 'out/test'
+const PAGE_KEYS = ['action', 'browser_action', 'side_panel', 'options_ui', 'options_page', 'devtools_page']
 
-# ANSI colors for logs
-def green(t)  
-	"\x1b[32m{t}\x1b[0m"
-def red(t)    
-	"\x1b[31m{t}\x1b[0m"
-def yellow(t) 
-	"\x1b[33m{t}\x1b[0m"
-def cyan(t)   
-	"\x1b[36m{t}\x1b[0m"
-def dim(t)    
-	"\x1b[2m{t}\x1b[0m"
+# --- Small utilities ---
 
-# Smart merge: recursive for objects, concatenates + dedupes arrays,
-# scalar values from `source` override `target`.
+const ANSI = { green: 32, red: 31, yellow: 33, cyan: 36, dim: 2 }
+def col(name, t) do "\x1b[{ANSI[name]}m{t}\x1b[0m"
+
+def readJson(path)
+	existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {}
+
+def slugify(name)
+	name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+def debounce(fn, ms)
+	let timer = null
+	return do
+		clearTimeout(timer) if timer
+		timer = setTimeout(fn, ms)
+
+def watchDir(path, fn)
+	fsWatch(path, recursive: true) do(e, f) fn() if f
+
+# Minimal HTML wrapper for a compiled Imba page (lives next to the .js)
+def pageHtml(jsPath)
+	const file = jsPath.split('/').pop()
+	'<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./{file}"></script>\n  </body>\n</html>\n'
+
+# --- Manifest ---
+
+# Recursive merge: objects merge, arrays concat+dedupe, scalars override
 def smartMerge(target, source)
 	const result = { ...target }
 	for own key, value of source
@@ -32,9 +47,9 @@ def smartMerge(target, source)
 			result[key] = smartMerge(result[key], value)
 		else
 			result[key] = value
-	return result
+	result
 
-# Remove keys with null / undefined / empty objects (recursive)
+# Remove null / undefined / empty-object keys (recursive)
 def cleanEmptyProperties(obj)
 	for own key, value of obj
 		if value == null
@@ -43,139 +58,63 @@ def cleanEmptyProperties(obj)
 			cleanEmptyProperties(value)
 			delete obj[key] if Object.keys(value).length == 0
 
-# Generate the minimal HTML wrapper for an Imba page.
-# The src uses only the file basename: HTML and JS live in the same folder.
-def pageHtml(jsFile)
-	const fileName = jsFile.includes('/') ? jsFile.slice(jsFile.lastIndexOf('/') + 1) : jsFile
-	return '<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <title>Extension</title>\n  </head>\n  <body>\n    <script type="module" src="./' + fileName + '"></script>\n  </body>\n</html>\n'
+# Single recursive pass over the manifest: collects entries AND rewrites
+# refs in place, so the two can never drift out of sync.
+def walkManifest(node, entries, kind = null)
+	if typeof node == 'string'
+		if kind == 'css' or (kind == 'page' and node.endsWith('.html'))
+			entries.push({ source: "app/{node}", output: node })   # plain asset: copy
+			return node
+		if node.endsWith('.imba')
+			const name = node.slice(0, -5)
+			entries.push({ source: "app/{node}", output: "{name}.js" })
+			if kind == 'page'
+				entries.push({ output: "{name}.html", content: pageHtml("{name}.js") })
+				return "{name}.html"
+			return "{name}.js"
+		return node
+	if Array.isArray(node)
+		return node.map do(v) walkManifest(v, entries, kind)
+	if node isa Object
+		for own k, v of node
+			const sub = PAGE_KEYS.includes(k) ? 'page' : k == 'css' ? 'css' : kind
+			node[k] = walkManifest(v, entries, sub)
+	node
 
-# Collect entrypoints from the source manifest (before browser merge).
-# .imba pages get a compiled .js entry AND a generated wrapper .html.
-def collectEntries(sourceData)
+def buildManifest(browserName)
+	const sourceData = readJson('app/metadata.json')
+	const { chrome, firefox, ...common } = sourceData
+	const pkg = readJson('package.json')
+
+	common.name = common.name or pkg.name or 'my-extension'
+	common.version = common.version or pkg.version or '0.0.1'
+	common.description = common.description or pkg.description or ''
+
 	const entries = []
-	const common = sourceData
+	const manifest = walkManifest(smartMerge(common, sourceData[browserName]), entries)
+	cleanEmptyProperties(manifest)
 
-	# background
-	if common.background..service_worker..endsWith('.imba')
-		const name = common.background.service_worker.slice(0, -5)
-		entries.push({ source: "app/{name}.imba", output: "{name}.js" })
-	for s of (common.background..scripts or [])
-		if s.endsWith('.imba')
-			const name = s.slice(0, -5)
-			entries.push({ source: "app/{name}.imba", output: "{name}.js" })
+	if browserName == 'firefox' and !manifest.browser_specific_settings..gecko..id
+		console.warn col('yellow', "⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org")
 
-	# content_scripts
-	for cs of (common.content_scripts or [])
-		for f of (cs.js or [])
-			if f.endsWith('.imba')
-				const name = f.slice(0, -5)
-				entries.push({ source: "app/{name}.imba", output: "{name}.js" })
-		for f of (cs.css or [])
-			if f.endsWith('.imba')
-				const name = f.slice(0, -5)
-				entries.push({ source: "app/{name}.imba", output: "{name}.css" })
+	return { manifest, entries }
 
-	# Pages (popup, options, etc.)
-	const pages = []
-	for k of ['action', 'browser_action', 'side_panel']
-		const page = common[k]..default_popup or common[k]..default_page
-		pages.push(page) if page
-	pages.push(common.options_ui..page) if common.options_ui..page
-	pages.push(common.options_page) if common.options_page
-	pages.push(common.devtools_page) if common.devtools_page
+# --- Entries output ---
 
-	for page of pages
-		if page.endsWith('.imba')
-			const name = page.slice(0, -5)
-			entries.push({ source: "app/{page}", output: "{name}.js" })
-			entries.push({ wrapperHtml: "{name}.html", wrapperJs: "{name}.js" })
-		elif page.endsWith('.html')
-			entries.push({ source: "app/{page}", output: "{page}" })
-
-	return entries
-
-# Rewrite .imba references in the merged manifest for final output
-def rewriteManifest(manifest)
-	if manifest.background..service_worker..endsWith('.imba')
-		manifest.background.service_worker = manifest.background.service_worker.slice(0, -5) + '.js'
-
-	let bgIndex = 0
-	for s of (manifest.background and manifest.background.scripts or [])
-		if s.endsWith('.imba')
-			manifest.background.scripts[bgIndex] = s.slice(0, -5) + '.js'
-		bgIndex++
-
-	for cs of (manifest.content_scripts or [])
-		let jsIndex = 0
-		for f of (cs.js or [])
-			if f.endsWith('.imba')
-				cs.js[jsIndex] = f.slice(0, -5) + '.js'
-			jsIndex++
-		let cssIndex = 0
-		for f of (cs.css or [])
-			if f.endsWith('.imba')
-				cs.css[cssIndex] = f.slice(0, -5) + '.css'
-			cssIndex++
-
-	# pages: .imba -> .html (we generate the wrapper)
-	for k of ['action', 'browser_action', 'side_panel']
-		if manifest[k]
-			if manifest[k].default_popup and manifest[k].default_popup.endsWith('.imba')
-				manifest[k].default_popup = manifest[k].default_popup.slice(0, -5) + '.html'
-			if manifest[k].default_page and manifest[k].default_page.endsWith('.imba')
-				manifest[k].default_page = manifest[k].default_page.slice(0, -5) + '.html'
-	if manifest.options_ui and manifest.options_ui.page and manifest.options_ui.page.endsWith('.imba')
-		manifest.options_ui.page = manifest.options_ui.page.slice(0, -5) + '.html'
-	if manifest.options_page and manifest.options_page.endsWith('.imba')
-		manifest.options_page = manifest.options_page.slice(0, -5) + '.html'
-	if manifest.devtools_page and manifest.devtools_page.endsWith('.imba')
-		manifest.devtools_page = manifest.devtools_page.slice(0, -5) + '.html'
-
-	return manifest
-
-# Slugify a manifest name for use in a filename (no spaces)
-def slugify(name)
-	return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-
-const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
-
-# Recursive scan of the repo for a given suffix (used by test mode)
-def scanFiles(suffix)
-	readdirSync('.', recursive: true).filter do(f)
-		const path = String(f)
-		path.endsWith(suffix) and !ignoredDirs.some do(dir) path.startsWith(dir)
-
-# Ensure the parent folder of an out/app path exists
-def ensureOutDir(output)
-	if output.includes('/')
-		mkdirSync("{APP_DIR}/{output.slice(0, output.lastIndexOf('/'))}", recursive: true)
-
-# Copy-only entries (html, css, wrappers)
-def processEntry(entry)
-	if entry.wrapperHtml
-		ensureOutDir(entry.wrapperHtml)
-		writeFileSync("{APP_DIR}/{entry.wrapperHtml}", pageHtml(entry.wrapperJs))
-	elif existsSync(entry.source)
-		ensureOutDir(entry.output)
-		cpSync(entry.source, "{APP_DIR}/{entry.output}")
+def processEntry(e)
+	mkdirSync(dirname("{APP_DIR}/{e.output}"), recursive: true)
+	if e.content
+		writeFileSync("{APP_DIR}/{e.output}", e.content)
+	elif existsSync(e.source)
+		cpSync(e.source, "{APP_DIR}/{e.output}")
 	else
-		console.warn yellow("✗ Entry source not found: {entry.source or entry.wrapperJs}")
+		console.warn col('yellow', "✗ Entry source not found: {e.source}")
 
-# Debounce: collapses bursts of fs events into a single run
-def debounce(fn, ms)
-	let timer = null
-	return do
-		clearTimeout(timer) if timer
-		timer = setTimeout(fn, ms)
+# --- Tests ---
 
-# Recursively watch a directory; `fn` runs on any change (debounced by caller)
-def watchDir(path, fn)
-	fsWatch(path, recursive: true) do(eventType, filename)
-		fn() if filename
-
-# Transpile one test file with the Imba compiler, in-process
-def compileTestFile(source, dest)
-	mkdirSync(dest.slice(0, dest.lastIndexOf('/')), recursive: true)
+def compileTestFile(source)
+	const dest = "{TEST_DIR}/{source.replace('.test.imba', '.test.js')}"
+	mkdirSync(dirname(dest), recursive: true)
 	try
 		const out = imbaCompiler.compile(readFileSync(source, 'utf8'),
 			sourcePath: source
@@ -189,22 +128,34 @@ def compileTestFile(source, dest)
 		writeFileSync(dest, out.js)
 		return true
 	catch err
-		console.error red("✗ {source}: {err.message}")
+		console.error col('red', "✗ {source}: {err.message}")
 		return false
 
-# Readdir récursif {chemin/relatif: Uint8Array} attendu par fflate
-def readDir(dir, base = '')
-	const out = {}
-	for name of readdirSync(dir)
-		const rel = base ? "{base}/{name}" : name
-		if statSync(join(dir, name)).isDirectory()
-			Object.assign(out, readDir(join(dir, name), rel))
-		else
-			out[rel] = readFileSync(join(dir, name))
-	return out
+def transpileAll(files)
+	let fails = 0
+	for f of files
+		fails += 1 unless compileTestFile(f)
+	fails
 
+const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
+
+def scanFiles(suffix)
+	readdirSync('.', recursive: true).filter do(f)
+		const p = String(f)
+		p.endsWith(suffix) and !ignoredDirs.some do(d) p.startsWith(d)
+
+# --- Packaging ---
+
+# {relative/path: content} map as expected by fflate
+def readDir(dir)
+	const out = {}
+	for f of readdirSync(dir, recursive: true)
+		const p = join(dir, String(f))
+		out[String(f).replace(/\\/g, '/')] = readFileSync(p) unless statSync(p).isDirectory()
+	out
 
 # --- Flags ---
+
 const args = process.argv.slice(2)
 const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
@@ -212,109 +163,62 @@ const packMode = args.includes('--pack')
 const prodMode = packMode or args.includes('--prod')
 const testMode = args.includes('--test')
 
-if testMode
-	# === TEST MODE ===
-	# Transpile all *.test.imba from the repo to out/test/, then bun test
+# --- Modes ---
+
+def runTests
 	rmSync(TEST_DIR, recursive: true, force: true)
 	mkdirSync(TEST_DIR, recursive: true)
 
 	const testFiles = scanFiles('.test.imba')
-
 	if testFiles.length == 0
-		console.log yellow("No .test.imba file found")
-		process.exit(0)
+		console.log col('yellow', "No .test.imba file found")
+		return
 
-	console.log cyan("-> Transpiling {testFiles.length} test file(s)...")
-	let failures = 0
-	for file of testFiles
-		const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
-		failures += 1 unless compileTestFile(file, dest)
-
+	console.log col('cyan', "-> Transpiling {testFiles.length} test file(s)...")
+	const failures = transpileAll(testFiles)
 	if failures > 0
-		console.error red("\n✗ {failures}/{testFiles.length} test file(s) failed to transpile")
+		console.error col('red', "\n✗ {failures}/{testFiles.length} test file(s) failed to transpile")
 		process.exit(1)
 
 	if watchMode
-		def recompileAll
-			let fails = 0
-			for file of testFiles
-				const dest = "{TEST_DIR}/{file.replace('.test.imba', '.test.js')}"
-				fails += 1 unless compileTestFile(file, dest)
-			console.log green("-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)")
-
-		const debounced = debounce(recompileAll, 120)
-		for file of testFiles
-			const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '.'
+		def recompile
+			const fails = transpileAll(testFiles)
+			console.log col('green', "-> Recompiled {testFiles.length - fails}/{testFiles.length} test file(s)")
+		const debounced = debounce(recompile, 120)
+		const dirs = Array.from(new Set(testFiles.map do(f) dirname(f)))
+		for dir of dirs
 			watchDir(dir, debounced)
-
 		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
 	else
-		console.log cyan("-> Running tests...")
+		console.log col('cyan', "-> Running tests...")
 		try
 			execSync("bun test {TEST_DIR}", stdio: 'inherit')
 		catch err
-			# bun test already printed the failure summary; just propagate its exit code
+			# bun test already printed the failure summary
 			process.exit(err.status or 1)
-		process.exit(0)
-else
-	# === BUILD EXTENSION MODE ===
+
+def runBuild
 	setTarget('browser')
 	const minify = prodMode and browser != 'firefox'
 	const sourcemap = prodMode ? 'none' : 'linked'
-
-	console.log cyan("== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) ==")
-
 	let finalManifest = null
 
 	def buildAll
-		# => Recreate output directory from scratch (removes stale files)
 		rmSync(APP_DIR, recursive: true, force: true)
 		mkdirSync(APP_DIR, recursive: true)
 
-		# => Copy static assets
 		if existsSync('app/assets')
 			cpSync('app/assets', "{APP_DIR}/assets", recursive: true)
-			console.log dim("-> Assets copied to {APP_DIR}/assets/")
 
-		# => Generate manifest
-		console.log dim("-> Generating manifest...")
+		const { manifest, entries } = buildManifest(browser)
+		finalManifest = manifest
+		writeFileSync("{APP_DIR}/manifest.json", JSON.stringify(manifest, null, 2))
 
-		const sourceData = JSON.parse(readFileSync('app/metadata.json', 'utf8'))
-		const { chrome, firefox, ...common } = sourceData
+		console.log col('dim', "-> Processing {entries.length} entr(ies)...")
 
-		let pkg = {}
-		if existsSync('package.json')
-			pkg = JSON.parse(readFileSync('package.json', 'utf8'))
-
-		# Fallbacks from package.json or default values if missing from metadata.json
-		common.name = common.name or pkg.name or 'my-extension'
-		common.version = common.version or pkg.version or '0.0.1'
-		common.description = common.description or pkg.description or ''
-
-		const merged = smartMerge(common, sourceData[browser])
-
-		# Collect .imba entrypoints before rewriting them to .js/.html
-		const entries = collectEntries(merged)
-		finalManifest = rewriteManifest(merged)
-		cleanEmptyProperties(finalManifest)
-
-		# Firefox: a Gecko ID is required to sign on AMO
-		if browser == 'firefox' and !finalManifest.browser_specific_settings..gecko..id
-			console.warn yellow("⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org")
-
-		writeFileSync("{APP_DIR}/manifest.json", JSON.stringify(finalManifest, null, 2))
-		console.log dim("-> Manifest {browser} written to {APP_DIR}/manifest.json")
-
-		# => Compile / copy entries
-		const jsEntries = entries.filter do(e)
-			e.source and e.output and e.output.endsWith('.js')
-		const otherEntries = entries.filter do(e)
-			!(e.source and e.output and e.output.endsWith('.js'))
-
-		console.log dim("-> Processing {entries.length} entr(ies)...")
-
+		const jsEntries = entries.filter do(e) e.source and e.output.endsWith('.js')
 		if jsEntries.length > 0
 			await Bun.build(
 				entrypoints: jsEntries.map do(e) e.source
@@ -325,28 +229,27 @@ else
 				plugins: [imbaPlugin]
 			)
 
-		for entry of otherEntries
-			processEntry(entry)
+		for e of entries
+			processEntry(e) unless e.source and e.output.endsWith('.js')
 
-		console.log green("-> Build complete ({browser})")
+		console.log col('green', "-> Build complete ({browser})")
 
+	console.log col('cyan', "== Building for {browser} ({prodMode ? 'prod' : 'dev'}{watchMode ? ', watch' : ''}) ==")
 	await buildAll()
 
 	if watchMode
-		# One fs.watch on app/ covers .imba sources, assets,
-		# html templates and metadata.json — full rebuild on any change
-		const debounced = debounce(buildAll, 120)
-		watchDir('app', debounced)
+		watchDir('app', debounce(buildAll, 120))
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
+	elif packMode
+		mkdirSync('releases', recursive: true)
+		const archive = "releases/{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
+		writeFileSync(archive, zipSync(readDir(APP_DIR), level: 9))
+		console.log col('green', "-> Archive {archive} created")
 
-	# => Package the extension into releases/ (--pack)
-	if packMode and !watchMode
-		mkdirSync('releases') unless existsSync('releases')
-		const archiveName = "{slugify(finalManifest.name)}_{finalManifest.version}_{browser}.zip"
-		try
-			writeFileSync("releases/{archiveName}", zipSync(readDir(APP_DIR), level: 9))
-			console.log green("-> Archive releases/{archiveName} created")
-		catch err
-			console.error red("Archiving failed (is zip installed?) : {err.message}")
-			process.exit(1)
+# --- Dispatch ---
+
+if testMode
+	runTests()
+else
+	await runBuild()
