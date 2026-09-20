@@ -1,0 +1,63 @@
+name: Store Publish Only
+
+# Minimal pipeline: build and submit to the browser stores, nothing else.
+# No tag, no GitHub Release; use publish.yml for the full flow.
+#
+# Trigger: push to the `bpp` branch.
+#
+# Prerequisites (repo-level):
+#   - package.json scripts: test and release (implies a packing command that produces zip files in releases/ )
+#   - secret: BPP_KEYS
+
+on:
+  push:
+    branches:
+      - bpp
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # --- SETUP ---
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Get package info
+        id: pkg
+        run: |
+          echo "version=$(node -p "require('./app/metadata.json').version")" >> $GITHUB_OUTPUT
+          # Slug must match the archive names produced by build.imba --pack
+          echo "slug=$(node -p "require('./app/metadata.json').name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')")" >> $GITHUB_OUTPUT
+
+      # --- SOURCE ZIP (for store review, e.g. AMO) ---
+      - name: Prepare source code zip
+        uses: vimtor/action-zip@v1.2
+        with:
+          files: ./
+          dest: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+
+      # --- INSTALL + TEST + BUILD ---
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Build extension
+        run: bun run release
+
+      # --- STORE PUBLISH ---
+      - name: Browser Platform Publish
+        uses: PlasmoHQ/bpp@v3
+        with:
+          keys: ${{ secrets.BPP_KEYS }}
+          chrome-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
+          firefox-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_firefox.zip
+          edge-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
+          source: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+          notes: "Review notes: instructions to exercise the extension on a test site go here."

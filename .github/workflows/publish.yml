@@ -1,0 +1,126 @@
+name: Publish Release
+
+# Generic release pipeline for extensions built with build.imba.
+#
+# Trigger: push to the `publish` branch.
+# Produces: git tag + GitHub Release with both browser archives,
+# source archive for store review, a Discussion announcement,
+# and store submissions via PlasmoHQ/bpp.
+#
+# Prerequisites (repo-level):
+#   - package.json scripts: test and release (implies a packing command that produces zip files in releases/ )
+#   - secrets: BPP_KEYS, and discussion ids (see DISCUSSION step)
+
+on:
+  push:
+    branches:
+      - publish
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # --- SETUP ---
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Get package info
+        id: pkg
+        run: |
+          echo "version=$(node -p "require('./app/metadata.json').version")" >> $GITHUB_OUTPUT
+          echo "name=$(node -p "require('./app/metadata.json').name")" >> $GITHUB_OUTPUT
+          # Slug must match the archive names produced by the packing command
+          echo "slug=$(node -p "require('./app/metadata.json').name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')")" >> $GITHUB_OUTPUT
+
+      # --- INSTALL AND TEST ---
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun run test
+
+      # --- SOURCE ZIP (for store review, e.g. AMO) ---
+      - name: Prepare source code zip
+        uses: vimtor/action-zip@v1.2
+        with:
+          files: ./
+          dest: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+
+      # --- BUILD (produces <slug>_<version>_chrome.zip and _firefox.zip) ---
+      - name: Build extension
+        run: bun run release
+
+      # --- TAG ---
+      - name: Create and push tag
+        run: |
+          git tag v${{ steps.pkg.outputs.version }}
+          git push origin v${{ steps.pkg.outputs.version }}
+
+      # --- CHANGELOG ---
+      - name: Build changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          configurationJson: |
+            {
+              "template": "#{{CHANGELOG}}\n\n**Full Changelog:** #{{RELEASE_DIFF}}",
+              "pr_template": "- #{{TITLE}} by @#{{AUTHOR}} in ##{{NUMBER}}",
+              "categories": [
+                { "title": "## What's Changed" }
+              ]
+            }
+
+      # --- GITHUB RELEASE (tag + changelog + both zips) ---
+      - name: Create Release with assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.pkg.outputs.version }}
+          name: ⏩ v${{ steps.pkg.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+          files: |
+            releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
+            releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_firefox.zip
+            releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+
+      # --- DISCUSSION (optional) ---
+      # Requires the repo to have Discussions enabled and two secrets:
+      #   DISCUSSION_REPOSITORY_ID, DISCUSSION_CATEGORY_ID
+      - name: Create a GitHub Discussion
+        if: ${{ env.DISCUSSION_REPOSITORY_ID != '' && env.DISCUSSION_CATEGORY_ID != '' }}
+        uses: abirismyname/create-discussion@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCUSSION_REPOSITORY_ID: ${{ secrets.DISCUSSION_REPOSITORY_ID }}
+          DISCUSSION_CATEGORY_ID: ${{ secrets.DISCUSSION_CATEGORY_ID }}
+        with:
+          title: "📣 New release: ${{ steps.pkg.outputs.name }} v${{ steps.pkg.outputs.version }}"
+          body: ${{ steps.changelog.outputs.changelog }}
+          repository-id: ${{ secrets.DISCUSSION_REPOSITORY_ID }}
+          category-id: ${{ secrets.DISCUSSION_CATEGORY_ID }}
+
+      # --- STORE PUBLISH ---
+      # BPP_KEYS: JSON with Chrome Web Store, AMO and Edge credentials
+      # (see https://github.com/PlasmoHQ/bpp)
+      - name: Browser Platform Publish
+        uses: PlasmoHQ/bpp@v3
+        with:
+          keys: ${{ secrets.BPP_KEYS }}
+          chrome-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
+          firefox-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_firefox.zip
+          edge-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
+          source: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+          # notes: "Review notes: instructions to exercise the extension on a test site go here."
+
+      # --- CLEANUP ---
+      - name: Delete the 'publish' branch
+        if: github.ref == 'refs/heads/publish'
+        run: git push origin --delete publish
