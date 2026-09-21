@@ -115,7 +115,7 @@ jobs:
           category-id: ${{ secrets.DISCUSSION_CATEGORY_ID }}
 
       # --- STORE PUBLISH ---
-      # BPP_KEYS: JSON with Chrome Web Store, AMO and Edge credentials
+      # BPP_KEYS: JSON with credentials
       # (see https://github.com/PlasmoHQ/bpp)
       - name: Browser Platform Publish
         uses: PlasmoHQ/bpp@v3.8.0
