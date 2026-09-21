@@ -11,6 +11,10 @@ name: Publish Release
 #   - package.json scripts: test and release (implies a packing command that produces zip files in releases/ )
 #   - secrets: BPP_KEYS, and discussion ids (see DISCUSSION step)
 
+permissions:
+  contents: write      # tag, release, assets, branch deletion
+  discussions: write   # Discussion step (abirismyname/create-discussion)
+
 on:
   push:
     branches:
@@ -19,6 +23,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DISCUSSION_REPOSITORY_ID: ${{ secrets.DISCUSSION_REPOSITORY_ID }}
+      DISCUSSION_CATEGORY_ID: ${{ secrets.DISCUSSION_CATEGORY_ID }}
     steps:
       # --- SETUP ---
       - name: Checkout code
@@ -96,7 +103,7 @@ jobs:
       #   DISCUSSION_REPOSITORY_ID, DISCUSSION_CATEGORY_ID
       - name: Create a GitHub Discussion
         if: ${{ env.DISCUSSION_REPOSITORY_ID != '' && env.DISCUSSION_CATEGORY_ID != '' }}
-        uses: abirismyname/create-discussion@v1
+        uses: abirismyname/create-discussion@v2.1.0
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCUSSION_REPOSITORY_ID: ${{ secrets.DISCUSSION_REPOSITORY_ID }}
@@ -111,7 +118,7 @@ jobs:
       # BPP_KEYS: JSON with Chrome Web Store, AMO and Edge credentials
       # (see https://github.com/PlasmoHQ/bpp)
       - name: Browser Platform Publish
-        uses: PlasmoHQ/bpp@v3
+        uses: PlasmoHQ/bpp@v3.8.0
         with:
           keys: ${{ secrets.BPP_KEYS }}
           chrome-file: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_chrome.zip
