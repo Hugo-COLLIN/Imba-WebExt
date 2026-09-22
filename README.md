@@ -51,13 +51,13 @@ When you build the extension:
 ### Testing
 Place tests in the repository, named `<your-test-name>.test.imba`.
 
+Every `.imba` file in the repository is compiled to `out/test/` preserving directory structure, so the relative path mirrors the location. This way, tests can import every file, like application sources. Example:
 ```imba
 import { test, expect, describe } from 'bun:test'
 import { hello } from './hello-file'
 import { walkManifest } from '../build'
 ```
 
-Note: The test runner also compiles `build.imba` to `out/test/build.js`, so unit tests can import the real pipeline helpers. The `../build.js` path works because tests sit one folder deep; keep that convention. The same way, you can import your compiled project files for integration tests using `../app/<path-to>/<entrypoint-name>.js`.
 
 ### Releasing
 
@@ -111,7 +111,7 @@ Here are the guides to get the required tokens for:
     - `extId`: the 32-character ID from the Chrome Developer Dashboard. The extension must already exist, so the very first upload is manual.
     - `refreshToken`: `npx gcp-refresh-token` opens the browser and writes it to a local file. **Never commit this file**
     - Tip: `"uploadOnly": true` uploads without publishing (good for testing the pipeline).
-- [AMO (addons.mozilla.org)](<TODO find a link>)
+- [AMO (addons.mozilla.org)](https://mozilla.github.io/addons-server/topics/api/auth.html)
     - Prerequisite: `browser_specific_settings.gecko.id` in `app/metadata.json` (otherwise AMO will reject the package)
     - addons.mozilla.org => Developer Hub => **API Keys**
     - Generate the JWT pair => `apiKey` + `apiSecret`
@@ -121,7 +121,9 @@ Here are the guides to get the required tokens for:
     - Register as a developer, create the add-on once => `productId`
     - Enable the Publish API => `clientId` and `clientSecret` (**shown only once**, copy immediately)
     - `accessTokenUrl` = your tenant's OAuth endpoint: `https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token`
-- [Opera Add-ons Store](<TODO find a link>)
+- [Opera Add-ons Store](https://help.opera.com/en/extensions/publishing-guidelines/)
+    - Create the package to get the `packageId`
+    - Note: Opera reviewers inspect the extension source code, so expect longer review times
 
 ##### Declare the secret
 

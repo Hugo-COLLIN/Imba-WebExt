@@ -174,8 +174,8 @@ def runTests
 	rmSync(TEST_DIR, recursive: true, force: true)
 	mkdirSync(TEST_DIR, recursive: true)
 
-	# build.imba is transpiled alongside the tests so they can import it
-	const files = ['build.imba', ...scanFiles('.test.imba')]
+	# All .imba files are transpiled, so tests can import any compiled module
+	const files = scanFiles('.imba').map do(f) String(f)
 	const testFiles = files.filter do(f) String(f).endsWith('.test.imba')
 
 	if testFiles.length == 0
