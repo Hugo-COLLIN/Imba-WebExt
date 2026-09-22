@@ -1,4 +1,7 @@
 import browser from 'webextension-polyfill'
+import {hello} from './hello.imba'
+
+hello!
 
 tag OptionsApp
 	prop settings = {}
