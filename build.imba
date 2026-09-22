@@ -132,7 +132,7 @@ def compileTestFile(source)
 			for e of out.errors
 				console.error "  {e.message}" if e
 			return false
-		writeFileSync(dest, out.js)
+		writeFileSync(dest, String(out.js))
 		return true
 	catch err
 		console.error col('red', "✗ {source}: {err.message}")
@@ -215,7 +215,8 @@ def runTests
 		const dirs = Array.from(new Set(files.map do(f) dirname(String(f))))
 		for dir of dirs
 			watchDir(dir, debounced)
-		spawn("bun test --watch {TEST_DIR}", stdio: 'inherit', shell: true)
+		# argv array (spaces in the project path are safe) and no shell
+		spawn('bun', ['test', '--watch', TEST_DIR], stdio: 'inherit')
 		console.log "\n👀 Watch mode active (Ctrl+C to stop)..."
 		process.stdin.resume()
 	else
