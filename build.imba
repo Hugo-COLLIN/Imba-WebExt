@@ -8,7 +8,7 @@ import * as imbaCompiler from 'imba/compiler'
 const APP_DIR = 'out/app'
 const TEST_DIR = 'out/test'
 export const PAGE_KEYS = ['action', 'browser_action', 'side_panel', 'options_ui', 'options_page', 'devtools_page']
-const ignoredDirs = ['node_modules', 'out', 'releases', '.git']
+const ignoredDirs = ['node_modules', 'out', 'releases', '.git', '.cache']
 
 # --- Small utilities ---
 
@@ -159,6 +159,24 @@ def readDir(dir)
 		out[String(f).replace(/\\/g, '/')] = readFileSync(p) unless statSync(p).isDirectory()
 	out
 
+# Archive the repository source, excludes build outputs and VCS metadata (same rule as scanFiles)
+def packSourceZip
+	mkdirSync('releases', recursive: true)
+	const meta = readJson('app/metadata.json')
+	const name = slugify(meta.name or readJson('package.json').name or 'extension')
+	const version = meta.version or readJson('package.json').version or '0.0.0'
+
+	const files = {}
+	const ignoredRe = new RegExp("^({ignoredDirs.join('|')})")
+	for f of readdirSync('.', recursive: true)
+		const p = String(f).replace(/\\/g, '/')
+		if !ignoredRe.test(p) and !statSync(p).isDirectory()
+			files[p] = new Uint8Array(readFileSync(p))
+
+	const archive = "releases/{name}_{version}_source.zip"
+	writeFileSync(archive, zipSync(files, level: 9))
+	console.log col('green', "-> Source archive {archive} created ({Object.keys(files).length} files)")
+
 # --- Flags ---
 
 const args = process.argv.slice(2)
@@ -166,6 +184,7 @@ const browser = args.includes('--firefox') ? 'firefox' : 'chrome'
 const watchMode = args.includes('--watch')
 const packMode = args.includes('--pack')
 const prodMode = packMode or args.includes('--prod')
+const sourceZipMode = args.includes('--source-zip')
 const testMode = args.includes('--test')
 
 # --- Modes ---
@@ -261,7 +280,9 @@ def runBuild
 const isEntry = process.argv[1] and process.argv[1].replace(/\\/g, '/').endsWith('/build.imba')
 
 if isEntry
-	if testMode
-		runTests()
+	if sourceZipMode
+		packSourceZip!
+	elif testMode
+		runTests!
 	else
-		await runBuild()
+		await runBuild!

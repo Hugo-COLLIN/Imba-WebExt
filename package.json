@@ -6,7 +6,8 @@
         "build:firefox": "bun run build.imba --firefox",
         "pack": "bun run build.imba --pack",
         "pack:firefox": "bun run build.imba --firefox --pack",
-        "release": "bun run pack && bun run pack:firefox",
+        "srczip": "bun run build.imba --source-zip",
+        "release": "bun run pack && bun run pack:firefox && bun run srczip",
         "test": "bun run build.imba --test",
         "test:watch": "bun run build.imba --test --watch"
     },

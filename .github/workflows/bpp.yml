@@ -6,7 +6,7 @@ name: Store Publish Only
 # Trigger: push to the `bpp` branch.
 #
 # Prerequisites (repo-level):
-#   - package.json scripts: test and release (implies a packing command that produces zip files in releases/ )
+#   - package.json scripts: test, srczip and release (implies a packing command that produces zip files in releases/ )
 #   - secret: BPP_KEYS
 
 on:
@@ -34,12 +34,9 @@ jobs:
           # Slug must match the archive names produced by build.imba --pack
           echo "slug=$(node -p "require('./app/metadata.json').name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')")" >> $GITHUB_OUTPUT
 
-      # --- SOURCE ZIP (for store review, e.g. AMO) ---
+      # --- SOURCE ZIP (for store review) ---
       - name: Prepare source code zip
-        uses: vimtor/action-zip@v1.2
-        with:
-          files: ./
-          dest: releases/${{ steps.pkg.outputs.slug }}_${{ steps.pkg.outputs.version }}_source.zip
+        run: bun run srczip
 
       # --- INSTALL + TEST + BUILD ---
       - name: Install dependencies
