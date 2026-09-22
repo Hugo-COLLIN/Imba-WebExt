@@ -157,8 +157,3 @@ query {
 gh secret set DISCUSSION_REPOSITORY_ID --body "R_kg..." # repository.id
 gh secret set DISCUSSION_CATEGORY_ID --body "DIC_..."   # discussionCategories.nodes[*].id
 ```
-
-## Tips
-Useful patterns for Imba and Bun:
-- `do(...)` callbacks instead of arrow functions in Imba style
-- `expect(value).toBe(...)` / `.toEqual(...)` / `.toBeUndefined()`
