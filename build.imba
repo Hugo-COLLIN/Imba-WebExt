@@ -4,11 +4,27 @@ import { dirname, join } from 'path'
 import { zipSync } from 'fflate'
 import * as imbaCompiler from 'imba/compiler'
 
-# Single source of truth
+# --- Single source of truth ---
 const APP_DIR = 'out/app'
 const TEST_DIR = 'out/test'
 export const PAGE_KEYS = ['action', 'browser_action', 'side_panel', 'options_ui', 'options_page', 'devtools_page']
 const ignoredDirs = ['node_modules', 'out', 'releases', '.git', '.cache']
+# Recognized WebExtension manifest keys
+const MANIFEST_KEYS = [
+	'name', 'short_name', 'version', 'version_name', 'description',
+	'manifest_version', 'default_locale', 'icons', 'author', 'developer',
+	'homepage_url', 'update_url', 'key',
+	'permissions', 'optional_permissions', 'host_permissions', 'optional_host_permissions',
+	'background', 'content_scripts', 'content_security_policy', 'web_accessible_resources',
+	'action', 'browser_action', 'page_action',
+	'options_ui', 'options_page', 'side_panel', 'sidebar_action',
+	'devtools_page', 'omnibox', 'commands', 'declarative_net_request',
+	'externally_connectable', 'chrome_url_overrides', 'chrome_settings_overrides',
+	'browser_specific_settings', 'minimum_chrome_version', 'minimum_opera_version',
+	'incognito', 'offline_enabled', 'storage',
+	'cross_origin_embedder_policy', 'cross_origin_opener_policy',
+	'sandbox', 'requirements', 'export', 'import'
+]
 
 # --- Small utilities ---
 
@@ -94,20 +110,29 @@ export def walkManifest(node, entries, kind = null)
 def buildManifest(browserName)
 	const sourceData = readJson('app/metadata.json')
 	const { chrome, firefox, ...common } = sourceData
-	const pkg = readJson('package.json')
 
-	common.name = common.name or pkg.name or 'my-extension'
-	common.version = common.version or pkg.version or '0.0.1'
-	common.description = common.description or pkg.description or ''
+	unless common.name and common.version
+		console.error col('red', "✗ app/metadata.json must define 'name' and 'version', needed for build and release")
+		process.exit(1)
+	common.description = common.description or ''
 
 	const entries = []
 	const manifest = walkManifest(smartMerge(common, sourceData[browserName]), entries)
 	cleanEmptyProperties(manifest)
+	validateManifestKeys(manifest, browserName)
 
 	if browserName == 'firefox' and !manifest.browser_specific_settings..gecko..id
 		console.warn col('yellow', "⚠️  No browser_specific_settings.gecko.id set; required to publish on addons.mozilla.org")
 
 	return { manifest, entries }
+
+def validateManifestKeys(manifest, browserName)
+	for own key, value of manifest
+		continue if MANIFEST_KEYS.includes(key)
+		console.warn col('yellow', "⚠️  '{key}' is not a recognized WebExtension key; not added in the {browserName} manifest")
+		delete manifest[key]
+
+	return manifest
 
 # --- Entries output ---
 
