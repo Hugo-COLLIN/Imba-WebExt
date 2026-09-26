@@ -27,14 +27,18 @@ def debounce(fn, ms)
 		clearTimeout(timer) if timer
 		timer = setTimeout(fn, ms)
 
-# Watch recursively; events inside ignored dirs (out/, node_modules/...)
-# never fire the callback; prevents self-triggered rebuild loops.
+# Portable recursive watch: register one watcher per directory under path
+# (the recursive option of fs.watch is not working on Linux)
+# Note: a subfolder created during the watch session won't be monitored
 def watchDir(path, fn)
-	fsWatch(path, recursive: true) do(e, f)
-		if f and !ignoredDirs.some 
-			do(d) 
-				String(f).startsWith(d)
-				fn()
+	const subdirs = readdirSync(path, recursive: true).map do(x) String(x)
+	const dirs = [path]
+	for f of subdirs
+		const p = join(path, f)
+		dirs.push(p) if statSync(p).isDirectory()
+	for d of dirs
+		fsWatch(d) do(e, filename)
+			fn() if filename
 
 # Minimal HTML wrapper for a compiled Imba page (lives next to the .js)
 export def pageHtml(jsPath)
